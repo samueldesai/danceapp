@@ -288,10 +288,19 @@ struct SpotifyImportSheet: View {
     private var inputPlaceholder: String {
         switch kind {
         case .track:
-            return "Track URL, URI, or ID"
+            return "Artist and song title, URL, URI, or ID"
         case .playlist:
             return "Playlist URL, URI, or ID"
         }
+    }
+
+    private var hasInput: Bool {
+        !spotifyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var statusColor: Color {
+        guard let message = player.spotifyStatusMessage else { return Color(hex: "#a3a3ac") }
+        return message.hasPrefix("Imported") || message.hasPrefix("Found") ? Color(hex: "#22c55e") : Color(hex: "#f97316")
     }
 
     var body: some View {
@@ -335,12 +344,64 @@ struct SpotifyImportSheet: View {
                     .foregroundColor(.gray)
                 TextField(inputPlaceholder, text: $spotifyInput)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        submitPrimaryAction()
+                    }
+            }
+
+            if kind == .track {
+                HStack(spacing: 8) {
+                    Button(action: searchTracks) {
+                        HStack(spacing: 6) {
+                            if player.isSpotifySearching {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            Text(player.isSpotifySearching ? "Searching" : "Search")
+                        }
+                    }
+                    .buttonStyle(DisplayWindowButtonStyle())
+                    .disabled(player.isSpotifySearching || player.isSpotifyImporting || !hasInput)
+
+                    Button(action: importInput) {
+                        HStack(spacing: 6) {
+                            if player.isSpotifyImporting {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "link.badge.plus")
+                            }
+                            Text(player.isSpotifyImporting ? "Importing" : "Import URL")
+                        }
+                    }
+                    .buttonStyle(DisplayWindowButtonStyle())
+                    .disabled(player.isSpotifyImporting || player.isSpotifySearching || !hasInput)
+                }
+            }
+
+            if kind == .track && !player.spotifySearchResults.isEmpty {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(player.spotifySearchResults) { track in
+                            SpotifySearchResultRow(track: track) {
+                                player.importSpotifyTrack(track)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 230)
+                .background(Color(hex: "#0c0c0e"))
+                .cornerRadius(6)
             }
 
             if let message = player.spotifyStatusMessage {
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundColor(message.hasPrefix("Imported") ? Color(hex: "#22c55e") : Color(hex: "#f97316"))
+                    .foregroundColor(statusColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -352,28 +413,114 @@ struct SpotifyImportSheet: View {
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
 
-                Button(action: {
-                    player.importSpotify(input: spotifyInput, kind: kind, clientID: spotifyClientID)
-                }) {
-                    HStack(spacing: 6) {
-                        if player.isSpotifyImporting {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "plus")
+                if kind == .playlist {
+                    Button(action: importInput) {
+                        HStack(spacing: 6) {
+                            if player.isSpotifyImporting {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "plus")
+                            }
+                            Text(player.isSpotifyImporting ? "Importing" : "Import")
                         }
-                        Text(player.isSpotifyImporting ? "Importing" : "Import")
                     }
+                    .buttonStyle(DisplayWindowButtonStyle())
+                    .disabled(player.isSpotifyImporting || !hasInput)
                 }
-                .buttonStyle(DisplayWindowButtonStyle())
-                .disabled(player.isSpotifyImporting || spotifyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(18)
-        .frame(width: 420)
+        .frame(width: 460)
         .background(Color(hex: "#111114"))
         .preferredColorScheme(.dark)
+        .onDisappear {
+            player.spotifySearchResults = []
+        }
+    }
+
+    private func submitPrimaryAction() {
+        if kind == .playlist {
+            importInput()
+        } else {
+            if isInputDirectLinkOrID(spotifyInput) {
+                player.spotifySearchResults = []
+                importInput()
+            } else {
+                searchTracks()
+            }
+        }
+    }
+
+    private func isInputDirectLinkOrID(_ input: String) -> Bool {
+        let cleaned = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        if cleaned.contains("spotify.com") || cleaned.hasPrefix("spotify:") {
+            return true
+        }
+        
+        let idRegex = "^[a-zA-Z0-9]{22}$"
+        if cleaned.range(of: idRegex, options: .regularExpression) != nil {
+            return true
+        }
+        
+        return false
+    }
+
+    private func searchTracks() {
+        player.searchSpotifyTracks(query: spotifyInput, clientID: spotifyClientID)
+    }
+
+    private func importInput() {
+        player.importSpotify(input: spotifyInput, kind: kind, clientID: spotifyClientID)
+    }
+}
+
+struct SpotifySearchResultRow: View {
+    let track: Track
+    let onImport: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if let artwork = track.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(hex: "#71717a"))
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(Color(hex: "#18181b"))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onImport) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .buttonStyle(DisplayWindowButtonStyle())
+            .help("Import track")
+        }
+        .padding(8)
+        .background(Color(hex: "#18181b"))
+        .cornerRadius(6)
     }
 }
 
@@ -818,7 +965,7 @@ struct MetadataEditorPanel: View {
                     }
                 }
             } else {
-                Text("Spotify playback starts at the start timestamp and pauses at the end timestamp.")
+                Text("Spotify playback starts at the start timestamp and pauses at the end timestamp. Note that you cannot change tempo on Spotify files.")
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#a3a3ac"))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1076,8 +1223,8 @@ struct PlaybackStatusBar: View {
                                 .font(.system(size: 25, weight: .bold))
                                 .foregroundColor(Color(hex: "#eab308"))
                         }
-                        Text(statusDisplayText)
-                            .font(.system(size: 25, weight: .medium))
+                        statusDisplayView
+                            .font(.system(size: 20, weight: .medium))
                             .foregroundColor(statusDisplayColor)
                             .lineLimit(1)
                     }
@@ -1105,20 +1252,27 @@ struct PlaybackStatusBar: View {
         }
     }
 
-    private var statusDisplayText: String {
+    @ViewBuilder
+    private var statusDisplayView: some View {
+        let title = player.currentTrack?.title ?? "Nothing playing"
+        let artist = player.currentTrack?.artist ?? ""
+        let styles = player.currentTrack?.formattedStylesDisplay ?? "—"
+
         if player.isBetweenSongs {
-            return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
+            HStack(spacing: 0) {
+                Text(title).italic()
+                Text(" - \(artist) : \(styles)")
+            }
+        } else if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
+            Text(message)
+        } else if player.currentTrack?.source == .spotify {
+            HStack(spacing: 0) {
+                Text(title).italic()
+                Text(" - \(artist) : \(styles)")
+            }
+        } else {
+            Text(player.currentTrack?.formattedStylesDisplay ?? "Nothing playing")
         }
-
-        if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
-            return message
-        }
-
-        if player.currentTrack?.source == .spotify {
-            return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
-        }
-
-        return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
     }
 
     private var statusDisplayColor: Color {

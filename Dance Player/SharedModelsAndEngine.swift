@@ -233,6 +233,14 @@ struct SpotifyAPITrack: Decodable {
     }
 }
 
+struct SpotifyTrackSearchResponse: Decodable {
+    let tracks: SpotifyTrackSearchPage
+}
+
+struct SpotifyTrackSearchPage: Decodable {
+    let items: [SpotifyAPITrack]
+}
+
 struct SpotifyAlbum: Decodable {
     let images: [SpotifyImage]
 }
@@ -418,6 +426,29 @@ final class SpotifyService {
         }
 
         return importedTracks
+    }
+
+    func searchTracks(query: String, clientID: String) async throws -> [Track] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+
+        var components = URLComponents(string: "https://api.spotify.com/v1/search")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: trimmedQuery),
+            URLQueryItem(name: "type", value: "track"),
+            URLQueryItem(name: "limit", value: "8")
+        ]
+
+        guard let url = components.url else {
+            throw SpotifyServiceError.requestFailed("Could not build Spotify search URL.")
+        }
+
+        let response: SpotifyTrackSearchResponse = try await apiRequest(url, clientID: clientID)
+        var results: [Track] = []
+        for apiTrack in response.tracks.items {
+            results.append(try await makeTrack(from: apiTrack))
+        }
+        return results
     }
 
     func startPlayback(uri: String, clientID: String?, position: TimeInterval = 0) async throws {
@@ -722,6 +753,8 @@ class PlayerController: ObservableObject {
     @Published var selectedTrackForEditing: Track? = nil
     @Published var spotifyStatusMessage: String? = nil
     @Published var isSpotifyImporting = false
+    @Published var isSpotifySearching = false
+    @Published var spotifySearchResults: [Track] = []
     @Published var tracks: [Track] = [] {
         didSet {
             // Forces a refresh sync down to all observing views when the collection shifts
@@ -729,6 +762,7 @@ class PlayerController: ObservableObject {
         }
     }
     
+    private var spotifyAccumulatedPauseTime: TimeInterval = 0.0
     private var avPlayer: AVPlayer?
     private var timeObserverToken: Any?
     private var spotifyProgressTask: Task<Void, Never>?
@@ -853,7 +887,9 @@ class PlayerController: ObservableObject {
             duration = track.effectiveDuration
             currentTime = 0
             isBetweenSongs = false
-
+            
+            self.spotifyAccumulatedPauseTime = 0.0
+            
             if autoPlay {
                 isPlaying = true
                 playSpotifyTrack(track)
@@ -994,8 +1030,25 @@ class PlayerController: ObservableObject {
         if isBetweenSongs {
             isBetweenSongs = false
             if let track = currentTrack, track.source == .spotify {
-                playSpotifyTrack(track)
-            } else {
+                if isPlaying {
+                    let absolutePauseTime = track.startTime + self.currentTime
+                    if let idx = currentIndex {
+                        // Update our internal model cache with this position
+                        self.tracks[idx].startTime = absolutePauseTime
+                        self.saveTrack(self.tracks[idx])
+                    }
+                    
+                    stopSpotifyProgressMonitor()
+                    pauseSpotifyPlayback()
+                    isPlaying = false
+                } else {
+                    playSpotifyTrack(track)
+                    isPlaying = true
+                }
+                return
+            }
+            
+            else {
                 avPlayer?.play()
                 if let speed = currentTrack?.speedMultiplier {
                     avPlayer?.rate = Float(speed)
@@ -1155,15 +1208,7 @@ class PlayerController: ObservableObject {
                 }
 
                 await MainActor.run {
-                    let existingHashes = Set(self.tracks.map(\.songHash))
-                    let freshTracks = importedTracks.filter { !existingHashes.contains($0.songHash) }
-                    self.tracks.append(contentsOf: freshTracks)
-
-                    if self.currentIndex == nil, !self.tracks.isEmpty {
-                        self.prepareTrack(index: 0, autoPlay: false)
-                    }
-
-                    self.spotifyStatusMessage = "Imported \(freshTracks.count) Spotify track\(freshTracks.count == 1 ? "" : "s")."
+                    self.appendSpotifyTracks(importedTracks)
                     self.isSpotifyImporting = false
                 }
             } catch {
@@ -1175,6 +1220,45 @@ class PlayerController: ObservableObject {
         }
     }
 
+    func searchSpotifyTracks(query: String, clientID: String) {
+        isSpotifySearching = true
+        spotifyStatusMessage = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let results = try await self.spotifyService.searchTracks(query: query, clientID: clientID)
+                await MainActor.run {
+                    self.spotifySearchResults = results
+                    self.spotifyStatusMessage = results.isEmpty ? "No Spotify tracks found." : "Found \(results.count) Spotify track\(results.count == 1 ? "" : "s")."
+                    self.isSpotifySearching = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.spotifyStatusMessage = error.localizedDescription
+                    self.isSpotifySearching = false
+                }
+            }
+        }
+    }
+
+    func importSpotifyTrack(_ track: Track) {
+        appendSpotifyTracks([track])
+    }
+
+    private func appendSpotifyTracks(_ importedTracks: [Track]) {
+        let existingHashes = Set(tracks.map(\.songHash))
+        let freshTracks = importedTracks.filter { !existingHashes.contains($0.songHash) }
+        tracks.append(contentsOf: freshTracks)
+
+        if currentIndex == nil, !tracks.isEmpty {
+            prepareTrack(index: 0, autoPlay: false)
+        }
+
+        spotifyStatusMessage = "Imported \(freshTracks.count) Spotify track\(freshTracks.count == 1 ? "" : "s")."
+    }
+
     private func playSpotifyTrack(_ track: Track, overrideStartTime: TimeInterval? = nil) {
         guard let uri = track.spotifyURI else {
             spotifyStatusMessage = "This Spotify track is missing its Spotify URI."
@@ -1182,8 +1266,12 @@ class PlayerController: ObservableObject {
         }
 
         stopSpotifyProgressMonitor()
-        let absoluteStartTime = overrideStartTime ?? track.startTime
-        currentTime = max(0, absoluteStartTime - track.startTime)
+        
+        let absoluteStartTime = overrideStartTime ?? (track.startTime + self.currentTime)
+        
+        if overrideStartTime != nil {
+            self.currentTime = max(0, absoluteStartTime - track.startTime)
+        }
 
         Task { [weak self] in
             guard let self else { return }
@@ -1203,7 +1291,7 @@ class PlayerController: ObservableObject {
             }
         }
     }
-
+    
     private func pauseSpotifyPlayback() {
         Task { [weak self] in
             guard let self else { return }
@@ -1556,7 +1644,7 @@ class PlayerController: ObservableObject {
     }
 
     private func performAssetExport(sourceURL: URL, endTrimTime: TimeInterval, trackIndex: Int) {
-        let asset = AVAsset(url: sourceURL)
+        let asset = AVURLAsset(url: sourceURL)
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { return }
         
         let outputURL = FileManager.default.temporaryDirectory
@@ -1567,11 +1655,11 @@ class PlayerController: ObservableObject {
         exportSession.outputFileType = .m4a
         exportSession.timeRange = CMTimeRange(start: .zero, end: CMTime(seconds: endTrimTime, preferredTimescale: 600))
         
-        exportSession.exportAsynchronously { [weak self] in
-            guard let self = self else { return }
-            if exportSession.status == .completed {
-                DispatchQueue.main.async {
-                    guard self.tracks.indices.contains(trackIndex) else { return }
+        Task { [weak self] in
+            do {
+                try await exportSession.export(to: outputURL, as: .m4a)
+                await MainActor.run {
+                    guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
                     
                     self.tracks[trackIndex].url = outputURL
                     self.tracks[trackIndex].duration = endTrimTime
@@ -1584,13 +1672,12 @@ class PlayerController: ObservableObject {
                     // --- NEW: Auto-calculate ReplayGain after a successful trim ---
                     self.calculateLoudness(forTrackAt: trackIndex)
                 }
-            } else {
-                print("Export session failed: \(String(describing: exportSession.error))")
+            } catch {
+                print("Export session failed: \(error.localizedDescription)")
                 
-                DispatchQueue.main.async {
-                    if self.tracks.indices.contains(trackIndex) {
-                        self.calculateLoudness(forTrackAt: trackIndex)
-                    }
+                await MainActor.run {
+                    guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
+                    self.calculateLoudness(forTrackAt: trackIndex)
                 }
             }
         }
