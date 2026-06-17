@@ -51,6 +51,9 @@ struct PlaylistView: View {
     // States allocated to manage the native macOS picker panels
     @State private var isShowingExporter = false
     @State private var isShowingImporter = false
+    @State private var isShowingAddMenu = false
+    @State private var isShowingSpotifyImporter = false
+    @State private var spotifyImportKind: SpotifyImportKind = .track
     @State private var activeExportDocument: JSONLibraryDocument? = nil
 
     var body: some View {
@@ -66,12 +69,34 @@ struct PlaylistView: View {
                 Spacer()
                 
                 // ADD TRACK BUTTON (Kept here for library management convenience)
-                Button(action: { player.openFilePicker() }) {
+                Button(action: { isShowingAddMenu.toggle() }) {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundColor(Color(hex: "#a3a3ac"))
                 }
                 .buttonStyle(.plain)
+                .popover(isPresented: $isShowingAddMenu, arrowEdge: .bottom) {
+                    AddTrackMenu(
+                        onSpotifyTrack: {
+                            spotifyImportKind = .track
+                            isShowingAddMenu = false
+                            isShowingSpotifyImporter = true
+                        },
+                        onSpotifyPlaylist: {
+                            spotifyImportKind = .playlist
+                            isShowingAddMenu = false
+                            isShowingSpotifyImporter = true
+                        },
+                        onLocalFiles: {
+                            isShowingAddMenu = false
+                            player.openFilePicker()
+                        },
+                        onPopularEdit: { edit in
+                            isShowingAddMenu = false
+                            player.importPopularEdit(edit)
+                        }
+                    )
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -159,6 +184,9 @@ struct PlaylistView: View {
             }
         }
         .background(Color(hex: "#09090b"))
+        .sheet(isPresented: $isShowingSpotifyImporter) {
+            SpotifyImportSheet(player: player, kind: spotifyImportKind)
+        }
         // NATIVE MAC LOCATIONS PICKER EXPORTER
         .fileExporter(
             isPresented: $isShowingExporter,
@@ -190,6 +218,200 @@ struct PlaylistView: View {
                 print("File selection error: \(error.localizedDescription)")
             }
         }
+    }
+}
+
+struct AddTrackMenu: View {
+    let onSpotifyTrack: () -> Void
+    let onSpotifyPlaylist: () -> Void
+    let onLocalFiles: () -> Void
+    let onPopularEdit: (PopularEdit) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: onSpotifyTrack) {
+                Label("Track from Spotify", systemImage: "music.note")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button(action: onSpotifyPlaylist) {
+                Label("Spotify Playlist", systemImage: "music.note.list")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+                .background(Color(hex: "#27272a"))
+
+            Button(action: onLocalFiles) {
+                Label("Local Files", systemImage: "folder")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Menu {
+                ForEach(PopularEdit.allCases) { edit in
+                    Button(edit.displayName) {
+                        onPopularEdit(edit)
+                    }
+                }
+            } label: {
+                Label("Popular Edits", systemImage: "star")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 13, weight: .medium))
+        .foregroundColor(Color(hex: "#d4d4d8"))
+        .padding(8)
+        .frame(width: 210)
+        .background(Color(hex: "#18181b"))
+    }
+}
+
+struct SpotifyImportSheet: View {
+    @ObservedObject var player: PlayerController
+    let kind: SpotifyImportKind
+
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("spotifyClientID") private var spotifyClientID: String = ""
+    @State private var spotifyInput: String = ""
+    @State private var isShowingSetupHelp = false
+
+    private var title: String {
+        switch kind {
+        case .track:
+            return "Track from Spotify"
+        case .playlist:
+            return "Spotify Playlist"
+        }
+    }
+
+    private var inputPlaceholder: String {
+        switch kind {
+        case .track:
+            return "Track URL, URI, or ID"
+        case .playlist:
+            return "Playlist URL, URI, or ID"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text("SPOTIFY CLIENT ID")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.gray)
+
+                    Button(action: { isShowingSetupHelp.toggle() }) {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color(hex: "#a3a3ac"))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Spotify setup help")
+                    .popover(isPresented: $isShowingSetupHelp, arrowEdge: .top) {
+                        SpotifySetupHelpPopover()
+                    }
+                }
+
+                TextField("Client ID", text: $spotifyClientID)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(kind == .track ? "SPOTIFY TRACK" : "SPOTIFY PLAYLIST")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.gray)
+                TextField(inputPlaceholder, text: $spotifyInput)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            if let message = player.spotifyStatusMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(message.hasPrefix("Imported") ? Color(hex: "#22c55e") : Color(hex: "#f97316"))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+
+                Button(action: {
+                    player.importSpotify(input: spotifyInput, kind: kind, clientID: spotifyClientID)
+                }) {
+                    HStack(spacing: 6) {
+                        if player.isSpotifyImporting {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: "plus")
+                        }
+                        Text(player.isSpotifyImporting ? "Importing" : "Import")
+                    }
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+                .disabled(player.isSpotifyImporting || spotifyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(18)
+        .frame(width: 420)
+        .background(Color(hex: "#111114"))
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct SpotifySetupHelpPopover: View {
+    private let redirectURI = "http://127.0.0.1:43879/callback"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Spotify Setup")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("1. Go to developer.spotify.com/dashboard.")
+                Text("2. Create an app, or open an existing app.")
+                Text("3. Add this Redirect URI:")
+                Text(redirectURI)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(hex: "#09090b"))
+                    .cornerRadius(4)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(hex: "#27272a"), lineWidth: 1))
+                Text("4. Copy the app's Client ID and paste it here.")
+            }
+            .font(.system(size: 12))
+            .foregroundColor(Color(hex: "#d4d4d8"))
+
+            Text("You must have Spotify Premium to import files from Spotify. If you don't have premium and are part of Dancebreak, talk to the admin team about this!")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#a3a3ac"))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 300)
+        .background(Color(hex: "#18181b"))
     }
 }
 
@@ -412,11 +634,12 @@ struct TrackRow: View {
                     player.selectedTrackForEditing = track
                 }) {
                     HStack(spacing: 6) {
-                        Image(systemName: "slider.horizontal.3") // Clean, standard icon for metadata/settings settings
-                        Text("Edit Metadata")
+                        Image(systemName: track.source == .spotify ? "clock" : "slider.horizontal.3")
+                        Text(track.source == .spotify ? "Timing Settings" : "Edit Metadata")
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle()) // Applies the exact style of the calculation button
+                .help(track.source == .spotify ? "Set Spotify start and end timestamps." : "Edit local track metadata.")
                 
                 Spacer(minLength: 0)
             }
@@ -454,6 +677,10 @@ struct MetadataEditorPanel: View {
     
     @State private var tempoPercentage: Double = 0.0
     @State private var localArtwork: NSImage? = nil
+
+    private var isEditingSpotifyTrack: Bool {
+        player.selectedTrackForEditing?.source == .spotify
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -497,7 +724,9 @@ struct MetadataEditorPanel: View {
                 .frame(width: 110, height: 110)
                 .cornerRadius(8)
                 .clipped()
-                .onTapGesture { importCoverArtImage() }
+                .onTapGesture {
+                    importCoverArtImage()
+                }
             }
             .frame(maxWidth: .infinity)
             
@@ -558,34 +787,41 @@ struct MetadataEditorPanel: View {
                 }
             }
             
-            // Engine Modification Constraints: Tempo Warp
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("TEMPO ADJUSTMENT")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text(String(format: "%+.1f%%", tempoPercentage))
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(tempoPercentage == 0 ? .gray : .blue)
+            if !isEditingSpotifyTrack {
+                // Engine Modification Constraints: Tempo Warp
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("TEMPO ADJUSTMENT")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.gray)
+                        Spacer()
+                        Text(String(format: "%+.1f%%", tempoPercentage))
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(tempoPercentage == 0 ? .gray : .blue)
+                    }
+                    
+                    Slider(value: $tempoPercentage, in: -25...25, step: 0.5)
+                        .accentColor(.blue)
+                    
+                    HStack {
+                        Text("Slower")
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray)
+                        Spacer()
+                        Button("Reset Tempo") { tempoPercentage = 0.0 }
+                            .font(.system(size: 9))
+                            .buttonStyle(.plain)
+                        Spacer()
+                        Text("Faster")
+                            .font(.system(size: 9))
+                            .foregroundColor(.gray)
+                    }
                 }
-                
-                Slider(value: $tempoPercentage, in: -25...25, step: 0.5)
-                    .accentColor(.blue)
-                
-                HStack {
-                    Text("Slower")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Button("Reset Tempo") { tempoPercentage = 0.0 }
-                        .font(.system(size: 9))
-                        .buttonStyle(.plain)
-                    Spacer()
-                    Text("Faster")
-                        .font(.system(size: 9))
-                        .foregroundColor(.gray)
-                }
+            } else {
+                Text("Spotify playback starts at the start timestamp and pauses at the end timestamp.")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             Spacer()
@@ -656,6 +892,9 @@ struct MetadataEditorPanel: View {
         player.tracks[matchIdx].title = editableTitle
         player.tracks[matchIdx].artist = editableArtist
         player.tracks[matchIdx].artwork = localArtwork
+        if player.tracks[matchIdx].source == .local {
+            player.tracks[matchIdx].tempoPercentage = tempoPercentage
+        }
         player.tracks[matchIdx].startTime = calculatedStart
         
         if calculatedEnd < player.tracks[matchIdx].duration && calculatedEnd > calculatedStart {
@@ -663,7 +902,6 @@ struct MetadataEditorPanel: View {
         } else {
             player.tracks[matchIdx].endTime = nil
         }
-        player.tracks[matchIdx].tempoPercentage = tempoPercentage
         
         if player.currentIndex == matchIdx {
             player.synchronizeActiveTrackSettings()
@@ -838,9 +1076,10 @@ struct PlaybackStatusBar: View {
                                 .font(.system(size: 25, weight: .bold))
                                 .foregroundColor(Color(hex: "#eab308"))
                         }
-                        Text(player.currentTrack?.formattedStylesDisplay ?? "Nothing playing")
+                        Text(statusDisplayText)
                             .font(.system(size: 25, weight: .medium))
-                            .foregroundColor(player.isBetweenSongs ? Color(hex: "#eab308") : Color(hex: "#3478f6"))
+                            .foregroundColor(statusDisplayColor)
+                            .lineLimit(1)
                     }
                 }
                 Spacer()
@@ -864,6 +1103,30 @@ struct PlaybackStatusBar: View {
             .accentColor(player.isBetweenSongs ? Color(hex: "#eab308") : Color(hex: "#3478f6"))
             .labelsHidden()
         }
+    }
+
+    private var statusDisplayText: String {
+        if player.isBetweenSongs {
+            return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
+        }
+
+        if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
+            return message
+        }
+
+        if player.currentTrack?.source == .spotify {
+            return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
+        }
+
+        return player.currentTrack?.formattedStylesDisplay ?? "Nothing playing"
+    }
+
+    private var statusDisplayColor: Color {
+        if player.spotifyStatusMessage != nil, player.currentTrack?.source == .spotify {
+            return Color(hex: "#f97316")
+        }
+
+        return player.isBetweenSongs ? Color(hex: "#eab308") : Color(hex: "#3478f6")
     }
 
     func formatTime(_ t: TimeInterval) -> String {
