@@ -347,6 +347,13 @@ struct SpotifyImportSheet: View {
                     .onSubmit {
                         submitPrimaryAction()
                     }
+                if kind == .playlist {
+                    Text("This import method only reads the first 100 songs from the Spotify embed page.")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#f97316"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
             }
 
             if kind == .track {
@@ -444,7 +451,10 @@ struct SpotifyImportSheet: View {
         if kind == .playlist {
             importInput()
         } else {
-            if isInputDirectLinkOrID(spotifyInput) {
+            if isSpotifyPlaylistInput(spotifyInput) {
+                player.spotifySearchResults = []
+                player.importSpotify(input: spotifyInput, kind: .playlist, clientID: spotifyClientID)
+            } else if isInputDirectLinkOrID(spotifyInput) {
                 player.spotifySearchResults = []
                 importInput()
             } else {
@@ -465,6 +475,20 @@ struct SpotifyImportSheet: View {
             return true
         }
         
+        return false
+    }
+
+    private func isSpotifyPlaylistInput(_ input: String) -> Bool {
+        let cleaned = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if cleaned.hasPrefix("spotify:playlist:") {
+            return true
+        }
+
+        if cleaned.contains("spotify.com") {
+            return cleaned.contains("/playlist/")
+        }
+
         return false
     }
 

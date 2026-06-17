@@ -102,6 +102,145 @@ struct DancePlayerLibrary: Codable {
     var tracks: [PersistedTrack]
 }
 
+private struct TaggedStyleRegistry {
+    private let styleBySongHash: [String: String]
+
+    private static let taggedFolderName = "tagged_jsons"
+    private static let styleNameOverrides: [String: String] = [
+        "rotary": "Rotary Waltz"
+    ]
+
+    static let shared = TaggedStyleRegistry.load()
+
+    private static func load() -> TaggedStyleRegistry {
+        var styleBySongHash: [String: String] = [:]
+        var loadedSourceCount = 0
+
+        let jsonURLs = bundledTaggedJSONURLs()
+
+        for url in jsonURLs {
+            let resourceName = url.deletingPathExtension().lastPathComponent
+
+            guard let data = try? Data(contentsOf: url),
+                  let library = try? JSONDecoder().decode(DancePlayerLibrary.self, from: data)
+            else {
+                print("Skipped tagged style file: \(resourceName).json")
+                continue
+            }
+
+            let discoveredStyle = library.tracks.compactMap { persistedTrack -> String? in
+                if !persistedTrack.customStyle.isEmpty {
+                    return persistedTrack.customStyle
+                }
+                if let style = persistedTrack.danceStyles.first(where: {
+                    !$0.isEmpty && $0 != "Other"
+                }) {
+                    return style
+                }
+                return nil
+            }.first
+
+            let styleName = discoveredStyle
+                ?? styleNameOverrides[resourceName.lowercased()]
+                ?? resourceName
+                    .replacingOccurrences(of: "_", with: " ")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .split(separator: " ")
+                    .map { word in
+                        word.prefix(1).uppercased() + word.dropFirst().lowercased()
+                    }
+                    .joined(separator: " ")
+
+            for persistedTrack in library.tracks {
+                styleBySongHash[persistedTrack.songHash] = styleName
+            }
+
+            loadedSourceCount += 1
+            print("Loaded tagged style source '\(resourceName).json' as '\(styleName)' with \(library.tracks.count) hash entries.")
+        }
+
+        print("Tagged style registry loaded \(styleBySongHash.count) hash entries from \(loadedSourceCount) JSON file(s).")
+        return TaggedStyleRegistry(styleBySongHash: styleBySongHash)
+    }
+
+    private static func bundledTaggedJSONURLs() -> [URL] {
+        var urls: [URL] = []
+        var seenPaths = Set<String>()
+
+        func appendJSONFiles(in directoryURL: URL, requireTaggedFolder: Bool) {
+            guard let names = try? FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { return }
+
+            for fileURL in names where fileURL.pathExtension.lowercased() == "json" {
+                if requireTaggedFolder,
+                   fileURL.deletingLastPathComponent().lastPathComponent.lowercased() != taggedFolderName {
+                    continue
+                }
+
+                let path = fileURL.standardizedFileURL.path
+                if seenPaths.insert(path).inserted {
+                    urls.append(fileURL)
+                }
+            }
+        }
+
+        for directoryURL in candidateTaggedDirectories() {
+            appendJSONFiles(in: directoryURL, requireTaggedFolder: false)
+            appendJSONFiles(in: directoryURL, requireTaggedFolder: true)
+        }
+
+        return urls.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private static func candidateTaggedDirectories() -> [URL] {
+        var candidates: [URL] = []
+        let fileManager = FileManager.default
+
+        let sourceFileDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        candidates.append(sourceFileDirectory.appendingPathComponent(taggedFolderName))
+
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL)
+            candidates.append(resourceURL.appendingPathComponent(taggedFolderName))
+        }
+
+        if let executableURL = Bundle.main.executableURL {
+            let contentsURL = executableURL.deletingLastPathComponent()
+            candidates.append(contentsURL)
+            candidates.append(contentsURL.appendingPathComponent(taggedFolderName))
+            let projectRootURL = contentsURL.deletingLastPathComponent().deletingLastPathComponent()
+            candidates.append(projectRootURL)
+            candidates.append(projectRootURL.appendingPathComponent("Dance Player").appendingPathComponent(taggedFolderName))
+        }
+
+        let currentDirectoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        candidates.append(currentDirectoryURL)
+        candidates.append(currentDirectoryURL.appendingPathComponent(taggedFolderName))
+        candidates.append(currentDirectoryURL.appendingPathComponent("Dance Player").appendingPathComponent(taggedFolderName))
+        candidates.append(currentDirectoryURL.appendingPathComponent("Dance Player").appendingPathComponent("Dance Player").appendingPathComponent(taggedFolderName))
+
+        var uniqueCandidates: [URL] = []
+        var seenPaths = Set<String>()
+
+        for candidate in candidates {
+            let standardized = candidate.standardizedFileURL
+            guard seenPaths.insert(standardized.path).inserted else { continue }
+            if FileManager.default.fileExists(atPath: standardized.path) {
+                uniqueCandidates.append(standardized)
+            }
+        }
+
+        return uniqueCandidates
+    }
+
+    func styleName(for songHash: String) -> String? {
+        styleBySongHash[songHash]
+    }
+}
+
 enum SpotifyImportKind {
     case track
     case playlist
@@ -245,13 +384,19 @@ struct SpotifyAlbum: Decodable {
     let images: [SpotifyImage]
 }
 
-struct SpotifyPlaylistItemsPage: Decodable {
-    let items: [SpotifyPlaylistItem]
-    let next: URL?
-}
+    struct SpotifyPlaylistItemsPage: Decodable {
+        let items: [SpotifyPlaylistItem]
+        let total: Int
+        let limit: Int
+        let offset: Int
+    }
 
 struct SpotifyPlaylistItem: Decodable {
-    let track: SpotifyAPITrack?
+    let item: SpotifyAPITrack?
+
+    enum CodingKeys: String, CodingKey {
+        case item = "track"
+    }
 }
 
 struct SpotifyDevicesResponse: Decodable {
@@ -399,6 +544,10 @@ final class SpotifyService {
         "http://127.0.0.1:\(redirectPort)/callback"
     }
 
+    func connect(clientID: String) async throws {
+        _ = try await accessToken(clientID: clientID)
+    }
+
     func importTrack(from input: String, clientID: String) async throws -> Track {
         let id = try spotifyID(from: input, expectedKind: "track")
         let apiTrack: SpotifyAPITrack = try await apiRequest(
@@ -408,24 +557,64 @@ final class SpotifyService {
         return try await makeTrack(from: apiTrack)
     }
 
-    func importPlaylist(from input: String, clientID: String) async throws -> [Track] {
+    func fetchPlaylistTrackURIs(from input: String) async throws -> [String] {
         let id = try spotifyID(from: input, expectedKind: "playlist")
-        var url = URL(string: "https://api.spotify.com/v1/playlists/\(id)/tracks?limit=100")!
-        var importedTracks: [Track] = []
+        let embedURL = URL(string: "https://open.spotify.com/embed/playlist/\(id)")!
+        var request = URLRequest(url: embedURL)
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            forHTTPHeaderField: "User-Agent"
+        )
 
-        while true {
-            let page: SpotifyPlaylistItemsPage = try await apiRequest(url, clientID: clientID)
-            for item in page.items {
-                if let apiTrack = item.track {
-                    importedTracks.append(try await makeTrack(from: apiTrack))
-                }
-            }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validate(response: response, data: data)
 
-            guard let next = page.next else { break }
-            url = next
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw SpotifyServiceError.requestFailed("Could not read Spotify playlist page.")
         }
 
-        return importedTracks
+        let uriPattern = #"spotify:track:[A-Za-z0-9]+"#
+        guard let regex = try? NSRegularExpression(pattern: uriPattern) else {
+            throw SpotifyServiceError.requestFailed("Could not read Spotify playlist page.")
+        }
+
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        var orderedURIs: [String] = []
+        var seenURIs = Set<String>()
+
+        for match in regex.matches(in: html, options: [], range: range) {
+            guard let matchRange = Range(match.range, in: html) else { continue }
+            let uri = String(html[matchRange])
+            if seenURIs.insert(uri).inserted {
+                orderedURIs.append(uri)
+            }
+        }
+
+        guard !orderedURIs.isEmpty else {
+            throw SpotifyServiceError.requestFailed("Could not find track IDs in the Spotify playlist embed.")
+        }
+
+        return orderedURIs
+    }
+
+    func importTracks(from inputs: [String], clientID: String) async throws -> [Track] {
+        let ids = inputs.compactMap { try? spotifyID(from: $0, expectedKind: "track") }
+        guard !ids.isEmpty else { return [] }
+
+        var allTracks: [Track] = []
+        for (index, id) in ids.enumerated() {
+            let apiTrack: SpotifyAPITrack = try await apiRequest(
+                URL(string: "https://api.spotify.com/v1/tracks/\(id)")!,
+                clientID: clientID
+            )
+            allTracks.append(try await makeTrack(from: apiTrack))
+
+            if index + 1 < ids.count {
+                try? await Task.sleep(nanoseconds: 125_000_000)
+            }
+        }
+
+        return allTracks
     }
 
     func searchTracks(query: String, clientID: String) async throws -> [Track] {
@@ -507,9 +696,40 @@ final class SpotifyService {
         return try JSONDecoder().decode(SpotifyPlaybackState.self, from: data)
     }
 
-    private func apiRequest<T: Decodable>(_ url: URL, clientID: String) async throws -> T {
+    private func apiRequest<T: Decodable>(_ url: URL, clientID: String, retryCount: Int = 0) async throws -> T {
         let request = try await authorizedRequest(url, clientID: clientID)
         let (data, response) = try await URLSession.shared.data(for: request)
+        
+        // Check for Spotify Rate Limiting (HTTP 429)
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
+            if retryCount < 3 {
+                var retryAfterSeconds: Double = 2.0 // Fallback default
+                
+                if let retryAfterHeader = httpResponse.value(forHTTPHeaderField: "Retry-After") {
+                    if let rawValue = Double(retryAfterHeader) {
+                        // If the value is larger than 1,000,000, it's a Unix Timestamp, not a duration
+                        if rawValue > 1_000_000 {
+                            let targetDate = Date(timeIntervalSince1970: rawValue)
+                            let remainingTime = targetDate.timeIntervalSince(Date())
+                            // Ensure we don't get a negative duration if the clock is slightly desynced
+                            retryAfterSeconds = max(0.5, remainingTime)
+                        } else {
+                            // It's a normal delta-seconds duration
+                            retryAfterSeconds = rawValue
+                        }
+                    }
+                }
+                
+                // Add a hard ceiling (e.g., max 60 seconds) so your app never sleeps for 19 hours
+                let finalSleepTime = min(60.0, retryAfterSeconds + 0.5)
+                
+                print("Spotify Rate Limit Hit! Sleeping for \(finalSleepTime)s before retry attempt #\(retryCount + 1)")
+                
+                try await Task.sleep(for: .seconds(finalSleepTime))
+                return try await apiRequest(url, clientID: clientID, retryCount: retryCount + 1)
+            }
+        }
+        
         try validate(response: response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -525,7 +745,7 @@ final class SpotifyService {
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
     }
-
+    
     private func playableDeviceID(clientID: String) async throws -> String? {
         let response: SpotifyDevicesResponse = try await apiRequest(
             URL(string: "https://api.spotify.com/v1/me/player/devices")!,
@@ -1191,6 +1411,22 @@ class PlayerController: ObservableObject {
         return nil
     }
 
+    private func applyTaggedStyles(to track: inout Track) {
+        guard let styleName = TaggedStyleRegistry.shared.styleName(for: track.songHash) else { return }
+        print("Applied tagged style '\(styleName)' to \(track.songHash)")
+
+        if let predefinedStyle = predefinedDanceStyles.first(where: {
+            $0.caseInsensitiveCompare(styleName) == .orderedSame
+        }) {
+            track.danceStyles.insert(predefinedStyle)
+        } else {
+            track.danceStyles.insert("Other")
+            if track.customStyle.isEmpty {
+                track.customStyle = styleName
+            }
+        }
+    }
+
     func importSpotify(input: String, kind: SpotifyImportKind, clientID: String) {
         isSpotifyImporting = true
         spotifyStatusMessage = nil
@@ -1199,17 +1435,23 @@ class PlayerController: ObservableObject {
             guard let self else { return }
 
             do {
-                let importedTracks: [Track]
+                try await self.spotifyService.connect(clientID: clientID)
                 switch kind {
                 case .track:
-                    importedTracks = [try await self.spotifyService.importTrack(from: input, clientID: clientID)]
+                    let importedTrack = try await self.spotifyService.importTrack(from: input, clientID: clientID)
+                    await MainActor.run {
+                        self.appendSpotifyTracks([importedTrack])
+                        self.isSpotifyImporting = false
+                    }
                 case .playlist:
-                    importedTracks = try await self.spotifyService.importPlaylist(from: input, clientID: clientID)
-                }
+                    let playlistTrackURIs = try await self.spotifyService.fetchPlaylistTrackURIs(from: input)
+                    let importedTracks = try await self.spotifyService.importTracks(from: playlistTrackURIs, clientID: clientID)
 
-                await MainActor.run {
-                    self.appendSpotifyTracks(importedTracks)
-                    self.isSpotifyImporting = false
+                    await MainActor.run {
+                        self.appendSpotifyTracks(importedTracks)
+                        self.isSpotifyImporting = false
+                        self.spotifyStatusMessage = "Imported \(importedTracks.count) Spotify track\(importedTracks.count == 1 ? "" : "s") from playlist."
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -1249,7 +1491,13 @@ class PlayerController: ObservableObject {
 
     private func appendSpotifyTracks(_ importedTracks: [Track]) {
         let existingHashes = Set(tracks.map(\.songHash))
-        let freshTracks = importedTracks.filter { !existingHashes.contains($0.songHash) }
+        let freshTracks = importedTracks
+            .filter { !existingHashes.contains($0.songHash) }
+            .map { importedTrack in
+                var taggedTrack = importedTrack
+                applyTaggedStyles(to: &taggedTrack)
+                return taggedTrack
+            }
         tracks.append(contentsOf: freshTracks)
 
         if currentIndex == nil, !tracks.isEmpty {
@@ -1544,7 +1792,7 @@ class PlayerController: ObservableObject {
                     matchedStyles.formUnion(presetDanceStyles)
                 }
 
-                let newTrack = Track(
+                var newTrack = Track(
                     url: url,
                     title: title,
                     artist: artist,
@@ -1559,6 +1807,8 @@ class PlayerController: ObservableObject {
                     endTime: endTime,
                     tempoPercentage: tempoPercentage
                 )
+
+                self.applyTaggedStyles(to: &newTrack)
 
                 // FIX 1: Append EXACTLY ONCE
                 self.tracks.append(newTrack)
@@ -1833,17 +2083,23 @@ class PlayerController: ObservableObject {
                 }
 
                 let clientID = UserDefaults.standard.string(forKey: "spotifyClientID") ?? ""
-                for importedTrack in missingSpotifyTracks {
-                    guard let input = self.spotifyImportInput(for: importedTrack) else { continue }
 
-                    do {
-                        var spotifyTrack = try await self.spotifyService.importTrack(from: input, clientID: clientID)
-                        self.applyPersistedSettings(importedTrack, to: &spotifyTrack)
-                        fetchedSpotifyTracks.append(spotifyTrack)
-                    } catch {
-                        spotifyImportError = error.localizedDescription
-                        break
+                let inputs = missingSpotifyTracks.compactMap { self.spotifyImportInput(for: $0) }
+
+                do {
+                    let fetchedTracks = try await self.spotifyService.importTracks(from: inputs, clientID: clientID)
+
+                    var updatedFetchedTracks: [Track] = []
+                    for var track in fetchedTracks {
+                        if let importedTrack = missingSpotifyTracks.first(where: { $0.songHash == track.songHash }) {
+                            self.applyPersistedSettings(importedTrack, to: &track)
+                        }
+                        self.applyTaggedStyles(to: &track)
+                        updatedFetchedTracks.append(track)
                     }
+                    fetchedSpotifyTracks = updatedFetchedTracks
+                } catch {
+                    spotifyImportError = error.localizedDescription
                 }
             }
 
@@ -1860,6 +2116,7 @@ class PlayerController: ObservableObject {
                     let currentHash = self.tracks[i].songHash
                     if let importedTrack = importedContainer.tracks.first(where: { $0.songHash == currentHash }) {
                         self.applyPersistedSettings(importedTrack, to: &self.tracks[i])
+                        self.applyTaggedStyles(to: &self.tracks[i])
                         self.saveTrack(self.tracks[i])
                         updateCount += 1
                     }

@@ -1,0 +1,3004 @@
+{
+  "tracks" : [
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5b7FSdJkuQC1BpUhehLGUr",
+      "title" : "All in Cahoots",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5b7FSdJkuQC1BpUhehLGUr",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5b7FSdJkuQC1BpUhehLGUr",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "This Is The Kit",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7v5s7YFXrwzytRan0HtZGb",
+      "title" : "Echo",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7v5s7YFXrwzytRan0HtZGb",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7v5s7YFXrwzytRan0HtZGb",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jason Walker",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1SH0BnKkEtLh8IcZnci79y",
+      "title" : "Howl's Moving Castle - Merry Go Round of Life",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1SH0BnKkEtLh8IcZnci79y",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1SH0BnKkEtLh8IcZnci79y",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Vitamin String Quartet",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3dnP0JxCgygwQH9Gm7q7nb",
+      "title" : "Ella Baila Sola",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3dnP0JxCgygwQH9Gm7q7nb",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3dnP0JxCgygwQH9Gm7q7nb",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Eslabon Armado, Peso Pluma",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5dNPLKtvKpPdAOiu9nfUg9",
+      "title" : "you're so lovely",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5dNPLKtvKpPdAOiu9nfUg9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5dNPLKtvKpPdAOiu9nfUg9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Chase Shakur",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2K4XkJgiPjUGtnwSIM6xxi",
+      "title" : "I’ll Go Anywhere",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2K4XkJgiPjUGtnwSIM6xxi",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2K4XkJgiPjUGtnwSIM6xxi",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mustafa",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3xKsf9qdS1CyvXSMEid6g8",
+      "title" : "Pink + White",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3xKsf9qdS1CyvXSMEid6g8",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3xKsf9qdS1CyvXSMEid6g8",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Frank Ocean",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0ot8VA36fmxBlIqa5xbnf7",
+      "title" : "Crushed Velvet",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0ot8VA36fmxBlIqa5xbnf7",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0ot8VA36fmxBlIqa5xbnf7",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Molly Lewis, Thee Sacred Souls",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3LBM25IgxI9y549SiYxtSi",
+      "title" : "Stuck On You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3LBM25IgxI9y549SiYxtSi",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3LBM25IgxI9y549SiYxtSi",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "GIVĒON",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7pDFd3sgEoPnka6k9IyBcH",
+      "title" : "Are You Even Real (feat. Givēon)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7pDFd3sgEoPnka6k9IyBcH",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7pDFd3sgEoPnka6k9IyBcH",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Teddy Swims, GIVĒON",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0j3mqDTK4Z6lvrLzFCUUz6",
+      "title" : "Good Looking",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0j3mqDTK4Z6lvrLzFCUUz6",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0j3mqDTK4Z6lvrLzFCUUz6",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Suki Waterhouse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4UG6xUt50ACelULWeDr9dR",
+      "title" : "The Story It's Always the Same",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4UG6xUt50ACelULWeDr9dR",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4UG6xUt50ACelULWeDr9dR",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Dead Brothers",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2Dl1KHm3B5meHmri4xelmb",
+      "title" : "Amsterdam",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2Dl1KHm3B5meHmri4xelmb",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2Dl1KHm3B5meHmri4xelmb",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Gregory Alan Isakov",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0815caqt2Lytro5EIzMufT",
+      "title" : "You And Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0815caqt2Lytro5EIzMufT",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0815caqt2Lytro5EIzMufT",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lifehouse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1AujcfRqjXhcoLlCZjgWo9",
+      "title" : "Believe in Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1AujcfRqjXhcoLlCZjgWo9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1AujcfRqjXhcoLlCZjgWo9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Devilskin",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0impvergaW8CuQS2OcEWMu",
+      "title" : "Nobody Gets Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0impvergaW8CuQS2OcEWMu",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0impvergaW8CuQS2OcEWMu",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "SZA",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5fWRLdgfMlbKDncAhdN9zI",
+      "title" : "Walk Me Home",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5fWRLdgfMlbKDncAhdN9zI",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5fWRLdgfMlbKDncAhdN9zI",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Said The Sky, ILLENIUM, Chelsea Cutler",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:41weyVlFwcjePnSN5CVDIU",
+      "title" : "Papercut",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/41weyVlFwcjePnSN5CVDIU",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:41weyVlFwcjePnSN5CVDIU",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Apollo Drive",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:727Z2S2mtNH46CbP9EWPwY",
+      "title" : "If You Love Her",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/727Z2S2mtNH46CbP9EWPwY",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:727Z2S2mtNH46CbP9EWPwY",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Forest Blakk",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0iY37NpRGCrK5AGfr4F6Qp",
+      "title" : "Road to Glory",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0iY37NpRGCrK5AGfr4F6Qp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0iY37NpRGCrK5AGfr4F6Qp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jeff Marsh, Audiomachine",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4U954vDqebfDJxSd1HS1Kk",
+      "title" : "Lose Control - Strings Version",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4U954vDqebfDJxSd1HS1Kk",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4U954vDqebfDJxSd1HS1Kk",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Teddy Swims",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:779ooI3rBd0CLqCiiJmtVo",
+      "title" : "Hero (feat. Josey Scott)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/779ooI3rBd0CLqCiiJmtVo",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:779ooI3rBd0CLqCiiJmtVo",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Chad Kroeger, Josey Scott",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:10AZj11FnvND9GW98ceiSp",
+      "title" : "MONSTER",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/10AZj11FnvND9GW98ceiSp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:10AZj11FnvND9GW98ceiSp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Chandler Leighton",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:20NA7vCOJQfcQx1UXYogR5",
+      "title" : "Rabbit Hole",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/20NA7vCOJQfcQx1UXYogR5",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:20NA7vCOJQfcQx1UXYogR5",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Madeline The Person",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5kUMB8d7Xa6X7VNe8qTY9k",
+      "title" : "Love Me Like That (Champion Love)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5kUMB8d7Xa6X7VNe8qTY9k",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5kUMB8d7Xa6X7VNe8qTY9k",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Ella Mai",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1LXBCPu6MVqcQvlEG7dvjl",
+      "title" : "Not Us",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1LXBCPu6MVqcQvlEG7dvjl",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1LXBCPu6MVqcQvlEG7dvjl",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mike Äpt",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0bYDebBlQxsDR4hCgbbpOW",
+      "title" : "I'm Gonna Find Another You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0bYDebBlQxsDR4hCgbbpOW",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0bYDebBlQxsDR4hCgbbpOW",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "John Mayer",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:00oiWWOX0SL1UICReGtoLy",
+      "title" : "Yeh Raaten Yeh Mausam",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/00oiWWOX0SL1UICReGtoLy",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:00oiWWOX0SL1UICReGtoLy",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Sanam, Simran Sehgal",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2ZTaDBKD75iY6K3KKwXbSR",
+      "title" : "Sho's Waltz",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2ZTaDBKD75iY6K3KKwXbSR",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2ZTaDBKD75iY6K3KKwXbSR",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Cécile Corbel",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4Y0cX5tIVS9doevnTu4hkl",
+      "title" : "Under The Weather",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4Y0cX5tIVS9doevnTu4hkl",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4Y0cX5tIVS9doevnTu4hkl",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "KT Tunstall",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0cEBv7oJxFp3bfTFqWFI0R",
+      "title" : "Why Don't You Love Me (feat. Demi Lovato)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0cEBv7oJxFp3bfTFqWFI0R",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0cEBv7oJxFp3bfTFqWFI0R",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Hot Chelle Rae, Demi Lovato",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5AZhrTm9YUCOiA3Vl2hQji",
+      "title" : "Slipped Away",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5AZhrTm9YUCOiA3Vl2hQji",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5AZhrTm9YUCOiA3Vl2hQji",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Avril Lavigne",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4P3mwtrNUcQT6cUtJx999n",
+      "title" : "Never Good Enough",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4P3mwtrNUcQT6cUtJx999n",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4P3mwtrNUcQT6cUtJx999n",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Citizen Soldier",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0Pfk6RzGNhwEP6HeEGH7Ya",
+      "title" : "Sometimes",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0Pfk6RzGNhwEP6HeEGH7Ya",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0Pfk6RzGNhwEP6HeEGH7Ya",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Tiago PZK, Teddy Swims",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2k6FKrR0wDIs6xCtU51GZ7",
+      "title" : "This Song",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2k6FKrR0wDIs6xCtU51GZ7",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2k6FKrR0wDIs6xCtU51GZ7",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Conan Gray",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4WJ6n3hm5R5vOuDno4UqZv",
+      "title" : "Your Kind of Crazy",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4WJ6n3hm5R5vOuDno4UqZv",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4WJ6n3hm5R5vOuDno4UqZv",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Teddy Swims",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2tH9DTuje2kxAKIT85vLnY",
+      "title" : "Black & White (feat. Muni Long)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2tH9DTuje2kxAKIT85vLnY",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2tH9DTuje2kxAKIT85vLnY",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Teddy Swims, Muni Long",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6FH6fmlh9DbvssuEQyQEVd",
+      "title" : "Movies",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6FH6fmlh9DbvssuEQyQEVd",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6FH6fmlh9DbvssuEQyQEVd",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Conan Gray",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3by8IfnW9dZ2t4pZw1WVxz",
+      "title" : "Stone Cold",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3by8IfnW9dZ2t4pZw1WVxz",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3by8IfnW9dZ2t4pZw1WVxz",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Demi Lovato",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2CNObFGxQ6pMdYNjuwCp68",
+      "title" : "Eleven Eleven",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2CNObFGxQ6pMdYNjuwCp68",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2CNObFGxQ6pMdYNjuwCp68",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Conan Gray",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2PtiHiGEYWqh9Ec4SRBKnC",
+      "title" : "cold\/mess - edit",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2PtiHiGEYWqh9Ec4SRBKnC",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2PtiHiGEYWqh9Ec4SRBKnC",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Prateek Kuhad",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0mO3YnSk4auaaHdWQ3uOHI",
+      "title" : "Beauty In Walking Away",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0mO3YnSk4auaaHdWQ3uOHI",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0mO3YnSk4auaaHdWQ3uOHI",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Marié Digby",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0pSqYDTjY1Xt86usTQslAx",
+      "title" : "Who",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0pSqYDTjY1Xt86usTQslAx",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0pSqYDTjY1Xt86usTQslAx",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "LAUV, BTS",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4gWTBq5Jftq5CEKYpLXD8R",
+      "title" : "Life After You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4gWTBq5Jftq5CEKYpLXD8R",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4gWTBq5Jftq5CEKYpLXD8R",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Daughtry",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1B4XVCWbQcMQ1wFMLrjjOz",
+      "title" : "almost home",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1B4XVCWbQcMQ1wFMLrjjOz",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1B4XVCWbQcMQ1wFMLrjjOz",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "mxmtoon",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3eDBBDWXkmH6chzPZhuajx",
+      "title" : "Good To You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3eDBBDWXkmH6chzPZhuajx",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3eDBBDWXkmH6chzPZhuajx",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Marianas Trench",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5ZyQBVcYJvCtpqTHATEkPp",
+      "title" : "Lose Control - French Version",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5ZyQBVcYJvCtpqTHATEkPp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5ZyQBVcYJvCtpqTHATEkPp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Chloe Elodie",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1yPitfYua0hpnJT5XluoQn",
+      "title" : "Aimee's Song",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1yPitfYua0hpnJT5XluoQn",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1yPitfYua0hpnJT5XluoQn",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Thomas Rowland",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:09mEdoA6zrmBPgTEN5qXmN",
+      "title" : "Call Out My Name",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/09mEdoA6zrmBPgTEN5qXmN",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:09mEdoA6zrmBPgTEN5qXmN",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Weeknd",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:50cooEVlF92CEn8nNz3BHb",
+      "title" : "Cliffhanger",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/50cooEVlF92CEn8nNz3BHb",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:50cooEVlF92CEn8nNz3BHb",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Suki Waterhouse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2tB9TgViGOAmhkCQ3DUkfw",
+      "title" : "Cry Baby",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2tB9TgViGOAmhkCQ3DUkfw",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2tB9TgViGOAmhkCQ3DUkfw",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Demi Lovato",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3oiRCYxZQm2rrozzysETh9",
+      "title" : "Helplessly, Hopelessly",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3oiRCYxZQm2rrozzysETh9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3oiRCYxZQm2rrozzysETh9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jessica Andrews",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1mRBJdpIgc3jZH8C3cN2WV",
+      "title" : "If Only",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1mRBJdpIgc3jZH8C3cN2WV",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1mRBJdpIgc3jZH8C3cN2WV",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Dove Cameron, Disney",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:13AXQVWGPzJFYUEgb6eoHc",
+      "title" : "Swing",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/13AXQVWGPzJFYUEgb6eoHc",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:13AXQVWGPzJFYUEgb6eoHc",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Zero 7",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1Dd6rQWeJCWRDULkmN5ioJ",
+      "title" : "made you cry",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1Dd6rQWeJCWRDULkmN5ioJ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1Dd6rQWeJCWRDULkmN5ioJ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Alessiah",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6GJ9seY4zx11sHMX9xsH6h",
+      "title" : "Loyal Brave True",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6GJ9seY4zx11sHMX9xsH6h",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6GJ9seY4zx11sHMX9xsH6h",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Christina Aguilera",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5OGPTs1IY8XiBaAhlD67U9",
+      "title" : "Keep Lying",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5OGPTs1IY8XiBaAhlD67U9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5OGPTs1IY8XiBaAhlD67U9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Donna Missal",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3KknxobyltvsTh70pfVKUP",
+      "title" : "Nauseous",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3KknxobyltvsTh70pfVKUP",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3KknxobyltvsTh70pfVKUP",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Conan Gray",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:25s2Q50d7ahhF7rMoGZkzF",
+      "title" : "On This Love",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/25s2Q50d7ahhF7rMoGZkzF",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:25s2Q50d7ahhF7rMoGZkzF",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Suki Waterhouse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:753iehfOnYSmjVfjx20znR",
+      "title" : "While You Were Sleeping",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/753iehfOnYSmjVfjx20znR",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:753iehfOnYSmjVfjx20znR",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Laufey",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1jD7cH2qoB2Fi2lVeqntgp",
+      "title" : "Illumielle",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1jD7cH2qoB2Fi2lVeqntgp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1jD7cH2qoB2Fi2lVeqntgp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jo Blankenburg",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3xeo2seNDIp712sUmZycAN",
+      "title" : "Here I Am",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3xeo2seNDIp712sUmZycAN",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3xeo2seNDIp712sUmZycAN",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "TAEYEON",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0GqCwOJvSUmEScpJxh2qSc",
+      "title" : "Streets",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0GqCwOJvSUmEScpJxh2qSc",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0GqCwOJvSUmEScpJxh2qSc",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Adrián Berenguer",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1zTEP1xkU5bZbJSIXoA8wq",
+      "title" : "Little Things",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1zTEP1xkU5bZbJSIXoA8wq",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1zTEP1xkU5bZbJSIXoA8wq",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Adrián Berenguer",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6RUhbFEhrvGISaQ8u2j2JN",
+      "title" : "Dangerous Woman",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6RUhbFEhrvGISaQ8u2j2JN",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6RUhbFEhrvGISaQ8u2j2JN",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Ariana Grande",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5ed6HqF6igTP7eqyk4aTWc",
+      "title" : "Wasureji no Kotonoha (feat. Kiwako Ashimine) [2022]",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5ed6HqF6igTP7eqyk4aTWc",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5ed6HqF6igTP7eqyk4aTWc",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mirai Kodai Orchestra, Kiwako Ashimine",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6usohdchdzW9oML7VC4Uhk",
+      "title" : "Lose Control",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6usohdchdzW9oML7VC4Uhk",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6usohdchdzW9oML7VC4Uhk",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Teddy Swims",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:61Qhe2mHSLhUE04QeK4lkD",
+      "title" : "Breakaway",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/61Qhe2mHSLhUE04QeK4lkD",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:61Qhe2mHSLhUE04QeK4lkD",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Kelly Clarkson",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4KdRGMIQRg1FqdBryTKBWq",
+      "title" : "Then I Can Let You Go",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4KdRGMIQRg1FqdBryTKBWq",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4KdRGMIQRg1FqdBryTKBWq",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Darren Criss, Helen J Shen, Dez Duron, Will Aronson, Hue Park",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0YrpjlGEheRPQ83m7uRDvp",
+      "title" : "The Skye Boat Song",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0YrpjlGEheRPQ83m7uRDvp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0YrpjlGEheRPQ83m7uRDvp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Corries",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2RJnW5OLYkMUcxn9Hv8XIg",
+      "title" : "Cursive (feat. Manchester Orchestra)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2RJnW5OLYkMUcxn9Hv8XIg",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2RJnW5OLYkMUcxn9Hv8XIg",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Matt Maeson, Manchester Orchestra",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:71qNRlNDnPahvATE7Zl4Nw",
+      "title" : "Never Seen Anything \"Quite Like You\"",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/71qNRlNDnPahvATE7Zl4Nw",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:71qNRlNDnPahvATE7Zl4Nw",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Script",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1LzrEBELUtfgvc8pKhL3Ct",
+      "title" : "Padi Padi Leche (From \"Padi Padi Leche Manasu\")",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1LzrEBELUtfgvc8pKhL3Ct",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1LzrEBELUtfgvc8pKhL3Ct",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Armaan Malik, Sinduri Vishal, Vishal Chandrasekhar, Krishna Kanth",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2plbrEY59IikOBgBGLjaoe",
+      "title" : "Die With A Smile",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2plbrEY59IikOBgBGLjaoe",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2plbrEY59IikOBgBGLjaoe",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lady Gaga, Bruno Mars",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:67DRo29KAbh1RUgzjUWiGq",
+      "title" : "Die With a Smile - Metal \/ Rockified",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/67DRo29KAbh1RUgzjUWiGq",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:67DRo29KAbh1RUgzjUWiGq",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Halocene, First to Eleven",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4UPcXTh26ilb7owtuyHqNI",
+      "title" : "Keep Holding On",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4UPcXTh26ilb7owtuyHqNI",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4UPcXTh26ilb7owtuyHqNI",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Avril Lavigne",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7cdNrEIFX5wNxTX5ZEU8zX",
+      "title" : "You And Me - Acoustic Version",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7cdNrEIFX5wNxTX5ZEU8zX",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7cdNrEIFX5wNxTX5ZEU8zX",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Matt Johnson",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4NOpvckr9g2qoz3hWIYEjx",
+      "title" : "Man of La Mancha",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4NOpvckr9g2qoz3hWIYEjx",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4NOpvckr9g2qoz3hWIYEjx",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "John Barrowman, Royal Philharmonic Orchestra",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6wcLhQZBeFqnnlf6IFXsWS",
+      "title" : "Parasite",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6wcLhQZBeFqnnlf6IFXsWS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6wcLhQZBeFqnnlf6IFXsWS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Tokyo Project, Diana Goldberg",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5vyxXfD5gLlyPxGZMEjtmd",
+      "title" : "Crazier",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5vyxXfD5gLlyPxGZMEjtmd",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5vyxXfD5gLlyPxGZMEjtmd",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Taylor Swift",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5KtvumPgVZmt8wg9xONE0T",
+      "title" : "Picture You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5KtvumPgVZmt8wg9xONE0T",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5KtvumPgVZmt8wg9xONE0T",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Chappell Roan",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:31TAub5WKWEsVTJcdksxq7",
+      "title" : "Caribbean Blue",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/31TAub5WKWEsVTJcdksxq7",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:31TAub5WKWEsVTJcdksxq7",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Enya",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0oWraSo5ASJ0h1BEagTyEw",
+      "title" : "Hold My Hand",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0oWraSo5ASJ0h1BEagTyEw",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0oWraSo5ASJ0h1BEagTyEw",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lady Gaga",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3AQN1uIAnnjOfpWE2Zp2In",
+      "title" : "Where You Are",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3AQN1uIAnnjOfpWE2Zp2In",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3AQN1uIAnnjOfpWE2Zp2In",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Gavin DeGraw",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2cyrm8BE8DAGTQMhqdQxmV",
+      "title" : "Fall Baby Fall",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2cyrm8BE8DAGTQMhqdQxmV",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2cyrm8BE8DAGTQMhqdQxmV",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Ryan Cabrera",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5LwqLJulabQK4SeLT3zqE3",
+      "title" : "Try",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5LwqLJulabQK4SeLT3zqE3",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5LwqLJulabQK4SeLT3zqE3",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Natasha Bedingfield",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0VRucsX8H6SP0ERtbpzEOc",
+      "title" : "No One",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0VRucsX8H6SP0ERtbpzEOc",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0VRucsX8H6SP0ERtbpzEOc",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Aly & AJ",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:30wRGoqRiYjk4ORJ0QbSQA",
+      "title" : "You Are Everything",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/30wRGoqRiYjk4ORJ0QbSQA",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:30wRGoqRiYjk4ORJ0QbSQA",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Matthew West",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6n04OXrQ6han8NGzu1gttJ",
+      "title" : "Lie",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6n04OXrQ6han8NGzu1gttJ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6n04OXrQ6han8NGzu1gttJ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "David Cook",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1OFPUQqdT0EuY4dwjf7xOi",
+      "title" : "Danced All Night Long",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1OFPUQqdT0EuY4dwjf7xOi",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1OFPUQqdT0EuY4dwjf7xOi",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "William Beckmann",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6ryVaeM96VutmvIeHIzTbj",
+      "title" : "Lovesick Mistake",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6ryVaeM96VutmvIeHIzTbj",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6ryVaeM96VutmvIeHIzTbj",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Erin McCarley",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6u1miGwO96pLedJxb7GE7p",
+      "title" : "Together",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6u1miGwO96pLedJxb7GE7p",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6u1miGwO96pLedJxb7GE7p",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Michelle Branch",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6nS1vMV1zs8c0Lk6mud78D",
+      "title" : "Just A Fool",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6nS1vMV1zs8c0Lk6mud78D",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6nS1vMV1zs8c0Lk6mud78D",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Christina Aguilera, Blake Shelton",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7ywzEdEuVG1lsjsRCGJfLy",
+      "title" : "When I Look At You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7ywzEdEuVG1lsjsRCGJfLy",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7ywzEdEuVG1lsjsRCGJfLy",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Miley Cyrus",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5TB6QgrF0RPIxSCGfRDLoe",
+      "title" : "We Never Change",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5TB6QgrF0RPIxSCGfRDLoe",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5TB6QgrF0RPIxSCGfRDLoe",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Coldplay",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:53QF56cjZA9RTuuMZDrSA6",
+      "title" : "I Won't Give Up",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/53QF56cjZA9RTuuMZDrSA6",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:53QF56cjZA9RTuuMZDrSA6",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jason Mraz",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:72vMSeYavoZhfUdxiTJxuK",
+      "title" : "Through The Day",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/72vMSeYavoZhfUdxiTJxuK",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:72vMSeYavoZhfUdxiTJxuK",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "David Treahearn, Rob Haggett, Cathy Newell, Ciara Newell",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5eyyd20ebcrlVK8elBoycE",
+      "title" : "Wait for Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5eyyd20ebcrlVK8elBoycE",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5eyyd20ebcrlVK8elBoycE",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Theory of a Deadman",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0qusvJa0R623oSZwe6WtSK",
+      "title" : "Lil Darlin (feat. The O'Mys)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0qusvJa0R623oSZwe6WtSK",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0qusvJa0R623oSZwe6WtSK",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "ZZ Ward, The O' My's",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0AdjJ2SaOeb5bPJ67nDbsW",
+      "title" : "From the Ground Up - Single Version",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0AdjJ2SaOeb5bPJ67nDbsW",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0AdjJ2SaOeb5bPJ67nDbsW",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Dan + Shay",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7e7SrNkC3IEyqYfFpRb29y",
+      "title" : "If You Don't Wanna Love Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7e7SrNkC3IEyqYfFpRb29y",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7e7SrNkC3IEyqYfFpRb29y",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "James Morrison",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0Mc2fDDZAisshuV5MNFa82",
+      "title" : "Frío",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0Mc2fDDZAisshuV5MNFa82",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0Mc2fDDZAisshuV5MNFa82",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Eiza",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7hCGSwHL7IFFBCbLKTJGd3",
+      "title" : "The Keeper",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7hCGSwHL7IFFBCbLKTJGd3",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7hCGSwHL7IFFBCbLKTJGd3",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Kina Grannis, Marié Digby",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:70lg2dZpcFmjNjcY5qfJAg",
+      "title" : "World Stand Still",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/70lg2dZpcFmjNjcY5qfJAg",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:70lg2dZpcFmjNjcY5qfJAg",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Tenors",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6iywI1870JvnLwbQJEvh2o",
+      "title" : "Gift of a Friend",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6iywI1870JvnLwbQJEvh2o",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6iywI1870JvnLwbQJEvh2o",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Demi Lovato",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7B0laBk1pATdsrlXcxATTu",
+      "title" : "Little Moon",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7B0laBk1pATdsrlXcxATTu",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7B0laBk1pATdsrlXcxATTu",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "MacKenzie Bourg",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0JrKnUSdWhZkGLK4MnkTmE",
+      "title" : "Ain't No Way (Glee Cast Version)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0JrKnUSdWhZkGLK4MnkTmE",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0JrKnUSdWhZkGLK4MnkTmE",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Glee Cast",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1jlG3KJ3gdYmhfuySFfpO1",
+      "title" : "I'm with You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1jlG3KJ3gdYmhfuySFfpO1",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1jlG3KJ3gdYmhfuySFfpO1",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Avril Lavigne",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6Hfm61e7tVpekos96WUa1T",
+      "title" : "Waiting",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6Hfm61e7tVpekos96WUa1T",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6Hfm61e7tVpekos96WUa1T",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jake Bugg, Noah Cyrus",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5oi5FZxnsT6jno2seBjmZM",
+      "title" : "Playing With Fire",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5oi5FZxnsT6jno2seBjmZM",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5oi5FZxnsT6jno2seBjmZM",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Thomas Rhett, Danielle Bradbery",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4s0EldNC1etxbYimOUkeIW",
+      "title" : "Change Your Name",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4s0EldNC1etxbYimOUkeIW",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4s0EldNC1etxbYimOUkeIW",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Brett Young",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6MiVIH3fQlmz44jGx2DXn4",
+      "title" : "Love Is a Bitch",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6MiVIH3fQlmz44jGx2DXn4",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6MiVIH3fQlmz44jGx2DXn4",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Two Feet",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:72PBShsWPBNmwDvHDAzqLI",
+      "title" : "Remember U",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/72PBShsWPBNmwDvHDAzqLI",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:72PBShsWPBNmwDvHDAzqLI",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Melanie Fiona",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:13QIjo2iGBgl56mNDjJOet",
+      "title" : "I Choose - From The Netflix Original Film \"The Willoughbys\"",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/13QIjo2iGBgl56mNDjJOet",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:13QIjo2iGBgl56mNDjJOet",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Alessia Cara",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2z7xDZymSVJq8f2Pn7V41V",
+      "title" : "What A Wonderful World (Wonderful World)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2z7xDZymSVJq8f2Pn7V41V",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2z7xDZymSVJq8f2Pn7V41V",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Eva Cassidy",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4oVO4fGNRRvEn0CRuFO4qv",
+      "title" : "La Perla",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4oVO4fGNRRvEn0CRuFO4qv",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4oVO4fGNRRvEn0CRuFO4qv",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "ROSALÍA, Yahritza Y Su Esencia",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1mBqHMVnmMJQp3XKeUsEPh",
+      "title" : "She",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1mBqHMVnmMJQp3XKeUsEPh",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1mBqHMVnmMJQp3XKeUsEPh",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Ben Abraham",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1oQzBqAv9zvLFUd2HvS77O",
+      "title" : "Heal Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1oQzBqAv9zvLFUd2HvS77O",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1oQzBqAv9zvLFUd2HvS77O",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "FARR",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5L3BN4BCOhsy72oST6uZKC",
+      "title" : "Worse",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5L3BN4BCOhsy72oST6uZKC",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5L3BN4BCOhsy72oST6uZKC",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Snoh Aalegra",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3ZSHFuE53CIexGaPBpfA2c",
+      "title" : "Khodahafez",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3ZSHFuE53CIexGaPBpfA2c",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3ZSHFuE53CIexGaPBpfA2c",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Erfan Tahmasbi",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2YVGvtfEQall8Grv3CTfgq",
+      "title" : "Soundwaves of Gold",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2YVGvtfEQall8Grv3CTfgq",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2YVGvtfEQall8Grv3CTfgq",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Daydream Club",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7D4W8nqlPMDsr3IjogAT3S",
+      "title" : "burn out",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7D4W8nqlPMDsr3IjogAT3S",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7D4W8nqlPMDsr3IjogAT3S",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "SOLOMON",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0dR5Oi45RyyOWv6yyG3iHF",
+      "title" : "Count on Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0dR5Oi45RyyOWv6yyG3iHF",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0dR5Oi45RyyOWv6yyG3iHF",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "NEEDTOBREATHE",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4OWa2dOlmtvMDhFrFL0QA1",
+      "title" : "La leçon particulière - Bande originale du film \"La leçon particulière\"",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4OWa2dOlmtvMDhFrFL0QA1",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4OWa2dOlmtvMDhFrFL0QA1",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Francis Lai, Christian Gaubert",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5ewEbrShLpLYaigwv6kBcp",
+      "title" : "Fade Into Me - Radio Edit",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5ewEbrShLpLYaigwv6kBcp",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5ewEbrShLpLYaigwv6kBcp",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "David Cook",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6rcTyXe8W8kjQLyALBRj1v",
+      "title" : "At My Weakest",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6rcTyXe8W8kjQLyALBRj1v",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6rcTyXe8W8kjQLyALBRj1v",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "James Arthur",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5bHNK2LmVetp9fBOg9Lhdt",
+      "title" : "Lifeline",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5bHNK2LmVetp9fBOg9Lhdt",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5bHNK2LmVetp9fBOg9Lhdt",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mandisa",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1IybCpPJOlFF8XCKSYLikN",
+      "title" : "American Funeral",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1IybCpPJOlFF8XCKSYLikN",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1IybCpPJOlFF8XCKSYLikN",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Joseph Angel",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1ExvMPFzyfuDcN6TqLRr2r",
+      "title" : "Please",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1ExvMPFzyfuDcN6TqLRr2r",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1ExvMPFzyfuDcN6TqLRr2r",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jordan Smith",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4l21VaodybkZaNRqwzSBZl",
+      "title" : "Jerome",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4l21VaodybkZaNRqwzSBZl",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4l21VaodybkZaNRqwzSBZl",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lizzo",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6avyV3xlz2UFeiAUZ0SqyT",
+      "title" : "The Time of My Life",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6avyV3xlz2UFeiAUZ0SqyT",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6avyV3xlz2UFeiAUZ0SqyT",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "David Cook",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0udOCZp7yk0Ml92C0k8H8D",
+      "title" : "That's On Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0udOCZp7yk0Ml92C0k8H8D",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0udOCZp7yk0Ml92C0k8H8D",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mac Miller",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5IxCyLApt7wBYfnvAgBeex",
+      "title" : "Pearl",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5IxCyLApt7wBYfnvAgBeex",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5IxCyLApt7wBYfnvAgBeex",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Cirque du Soleil",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7MqfymePYx1xQiuqwWMcwM",
+      "title" : "Where Would I Be?",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7MqfymePYx1xQiuqwWMcwM",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7MqfymePYx1xQiuqwWMcwM",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "CAKE",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0bxhDMaiPNyCfENDHz4FBx",
+      "title" : "Shame",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0bxhDMaiPNyCfENDHz4FBx",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0bxhDMaiPNyCfENDHz4FBx",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Joseph Angel",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2XIRmoOtopoz2kOQLMPIkk",
+      "title" : "Stop Pretending",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2XIRmoOtopoz2kOQLMPIkk",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2XIRmoOtopoz2kOQLMPIkk",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Audriix",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6p8eEdiZLKJH8tcjGZuNTK",
+      "title" : "Run",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6p8eEdiZLKJH8tcjGZuNTK",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6p8eEdiZLKJH8tcjGZuNTK",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Joji",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3xSVNEwa0NzkbBmJtquCpg",
+      "title" : "Voy a Olvidarte",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3xSVNEwa0NzkbBmJtquCpg",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3xSVNEwa0NzkbBmJtquCpg",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Reik",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7MsL9a98WUHN76Wks49Zeq",
+      "title" : "Too Late For Lullabies",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7MsL9a98WUHN76Wks49Zeq",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7MsL9a98WUHN76Wks49Zeq",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "James Morrison",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7iJwWMosd0PX4OwhI74zLS",
+      "title" : "It's Shaped You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7iJwWMosd0PX4OwhI74zLS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7iJwWMosd0PX4OwhI74zLS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Annika Kilkenny",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0a64exvT5aKVaRSmAVMaCT",
+      "title" : "To Love",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0a64exvT5aKVaRSmAVMaCT",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0a64exvT5aKVaRSmAVMaCT",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Suki Waterhouse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5VNDkQZlCCOGNTHrNZjBtW",
+      "title" : "Come Back",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5VNDkQZlCCOGNTHrNZjBtW",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5VNDkQZlCCOGNTHrNZjBtW",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lesley Roy",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5795tkQ1pTLZ2D3jctqhdQ",
+      "title" : "More Than a Band",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5795tkQ1pTLZ2D3jctqhdQ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5795tkQ1pTLZ2D3jctqhdQ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Bridgit Mendler, Naomi Scott, Hayley Kiyoko, Blake Michael, Adam Hicks",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2rxQMGVafnNaRaXlRMWPde",
+      "title" : "Beautiful Crazy",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2rxQMGVafnNaRaXlRMWPde",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2rxQMGVafnNaRaXlRMWPde",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Luke Combs",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6r3wb5hqhSjMcEyF9thTu9",
+      "title" : "Falling to Pieces",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6r3wb5hqhSjMcEyF9thTu9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6r3wb5hqhSjMcEyF9thTu9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Two Feet",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:04FOLNCieIYnCXuUYS8sVm",
+      "title" : "Nothing Else Matters",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/04FOLNCieIYnCXuUYS8sVm",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:04FOLNCieIYnCXuUYS8sVm",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Marlisa",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5Zft9zIODo7ZnImwcbaO4Z",
+      "title" : "Back To Me",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5Zft9zIODo7ZnImwcbaO4Z",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5Zft9zIODo7ZnImwcbaO4Z",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "3 Doors Down",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:582SpAYvkq9HjldXWTL2c5",
+      "title" : "Flames",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/582SpAYvkq9HjldXWTL2c5",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:582SpAYvkq9HjldXWTL2c5",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Donzell Taggart",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0RS4tXMELZK5kpuZ2G9HGQ",
+      "title" : "Fire",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0RS4tXMELZK5kpuZ2G9HGQ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0RS4tXMELZK5kpuZ2G9HGQ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mike Äpt, Steven Rodriguez",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0loaM97K2TYp3KzKzQCycL",
+      "title" : "The Fire",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0loaM97K2TYp3KzKzQCycL",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0loaM97K2TYp3KzKzQCycL",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Vincent Lima",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6UlOSPVKXHM32ZRecNlgOw",
+      "title" : "Breakaway",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6UlOSPVKXHM32ZRecNlgOw",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6UlOSPVKXHM32ZRecNlgOw",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Kelly Clarkson",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6WLArSQvdGhiuTgyoX7HkB",
+      "title" : "When I Look At You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6WLArSQvdGhiuTgyoX7HkB",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6WLArSQvdGhiuTgyoX7HkB",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Miley Cyrus",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0pIrZLoXAuTfnMGjhVNxe3",
+      "title" : "Annie's Song",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0pIrZLoXAuTfnMGjhVNxe3",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0pIrZLoXAuTfnMGjhVNxe3",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "John Denver",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2XZ86GmAnSXwreUsCP9JGR",
+      "title" : "Moonshine",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2XZ86GmAnSXwreUsCP9JGR",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2XZ86GmAnSXwreUsCP9JGR",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Favors, FINNEAS, Ashe",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6YXG34IWbilypPwjBTOrUC",
+      "title" : "Can I Have This Dance",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6YXG34IWbilypPwjBTOrUC",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6YXG34IWbilypPwjBTOrUC",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "High School Musical Cast, Vanessa Hudgens, Zac Efron, Disney",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3Xp5Q1qlO8YYn2B79fCt2w",
+      "title" : "Every Time",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3Xp5Q1qlO8YYn2B79fCt2w",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3Xp5Q1qlO8YYn2B79fCt2w",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jessica Andrews",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4Jk8jh3YUL1M2OGj9iqAHi",
+      "title" : "Insults",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4Jk8jh3YUL1M2OGj9iqAHi",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4Jk8jh3YUL1M2OGj9iqAHi",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Anne Gair",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1nVLAEzhBXMJLR5zAl90Nl",
+      "title" : "Crazy Girl - Single Version",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1nVLAEzhBXMJLR5zAl90Nl",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1nVLAEzhBXMJLR5zAl90Nl",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Eli Young Band",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:43NX0b86xL4ZkWwxt8Nrdy",
+      "title" : "The Pieces Don't Fit Anymore",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/43NX0b86xL4ZkWwxt8Nrdy",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:43NX0b86xL4ZkWwxt8Nrdy",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "James Morrison",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1NaSrCqTnZdlusQ82SJhGN",
+      "title" : "TWENTIES",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1NaSrCqTnZdlusQ82SJhGN",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1NaSrCqTnZdlusQ82SJhGN",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "GIVĒON",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2ALAuZdfe18JLS5KHr2Jh1",
+      "title" : "About A Girl",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2ALAuZdfe18JLS5KHr2Jh1",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2ALAuZdfe18JLS5KHr2Jh1",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Summer Set",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1sntdOU6b9fMuUOm3NPIuY",
+      "title" : "Feel It",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1sntdOU6b9fMuUOm3NPIuY",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1sntdOU6b9fMuUOm3NPIuY",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Michele Morrone",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5MAK1nd8R6PWnle1Q1WJvh",
+      "title" : "I See Red",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5MAK1nd8R6PWnle1Q1WJvh",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5MAK1nd8R6PWnle1Q1WJvh",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Everybody Loves an Outlaw",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1CXVrNWkpQ4dsSNOH43dJT",
+      "title" : "Embers",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1CXVrNWkpQ4dsSNOH43dJT",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1CXVrNWkpQ4dsSNOH43dJT",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Rezz, Raven Gray",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6lMMiFxOnNZBEJFc4UQPwS",
+      "title" : "Geyser",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6lMMiFxOnNZBEJFc4UQPwS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6lMMiFxOnNZBEJFc4UQPwS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Mitski",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1UrHECZ59YfwYQ1CkgHY0s",
+      "title" : "FIEND",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1UrHECZ59YfwYQ1CkgHY0s",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1UrHECZ59YfwYQ1CkgHY0s",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Visions Of Indigo",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5BX6X2pIA08Fa5YlXtGd7N",
+      "title" : "Strings",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5BX6X2pIA08Fa5YlXtGd7N",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5BX6X2pIA08Fa5YlXtGd7N",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "TAEMIN",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5us5NNahCz4GVlYEQG3O0n",
+      "title" : "Worse Things",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5us5NNahCz4GVlYEQG3O0n",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5us5NNahCz4GVlYEQG3O0n",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Johnny Hollow",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:01JN0tdJFzte57LUzvJxXG",
+      "title" : "MVP",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/01JN0tdJFzte57LUzvJxXG",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:01JN0tdJFzte57LUzvJxXG",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Rhea Raj",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:18FE77kJAwPMcuCnBLUciS",
+      "title" : "Bubble Wrap",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/18FE77kJAwPMcuCnBLUciS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:18FE77kJAwPMcuCnBLUciS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Precious Pepala",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0iO2iCAjtX0t5duvczNQt6",
+      "title" : "Oscar Winning Tears.",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0iO2iCAjtX0t5duvczNQt6",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0iO2iCAjtX0t5duvczNQt6",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "RAYE",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6pmUZU4mDjodUy7LEbxKYZ",
+      "title" : "Over Drinking",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6pmUZU4mDjodUy7LEbxKYZ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6pmUZU4mDjodUy7LEbxKYZ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Little Big Town",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6MdXZgsKL3UU1NoxcpDSCJ",
+      "title" : "Just To Feel That Way",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6MdXZgsKL3UU1NoxcpDSCJ",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6MdXZgsKL3UU1NoxcpDSCJ",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Taylor Hicks",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2W779g2UrRZtVdf3FcEOO1",
+      "title" : "In My Mind",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2W779g2UrRZtVdf3FcEOO1",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2W779g2UrRZtVdf3FcEOO1",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lyn Lapid",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5nHeBLelTtUSRZkL6n6BXS",
+      "title" : "Loving You Is Easy",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5nHeBLelTtUSRZkL6n6BXS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5nHeBLelTtUSRZkL6n6BXS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Marié Digby",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:09GUNlVoshcWZEgpcRo8wt",
+      "title" : "Traitor's Motif",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/09GUNlVoshcWZEgpcRo8wt",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:09GUNlVoshcWZEgpcRo8wt",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "The Blake Robinson Synthetic Orchestra",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:1c2hJSwcCfoPEw1su83Sw0",
+      "title" : "Hold My Hand",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/1c2hJSwcCfoPEw1su83Sw0",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:1c2hJSwcCfoPEw1su83Sw0",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Lady Gaga",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5yOhfiHWFUSm6H8CTBU5UE",
+      "title" : "For a Moment",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5yOhfiHWFUSm6H8CTBU5UE",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5yOhfiHWFUSm6H8CTBU5UE",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Calah Lane, Timothée Chalamet",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4cEO8RlZN5mN2UmmW2re9N",
+      "title" : "Four Seasons",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4cEO8RlZN5mN2UmmW2re9N",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4cEO8RlZN5mN2UmmW2re9N",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Younha",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0PBTlQ84CBJF0tBnKGmQa6",
+      "title" : "FRI(END)S",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0PBTlQ84CBJF0tBnKGmQa6",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0PBTlQ84CBJF0tBnKGmQa6",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "V",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7sZlye0DhrfxHBtUPK1If3",
+      "title" : "Iris",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7sZlye0DhrfxHBtUPK1If3",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7sZlye0DhrfxHBtUPK1If3",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jada Facer",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0nqrVlkPbsRi5gnwNdUPu9",
+      "title" : "Look for the Light - From \"Only Murders in the Building: Season 3\"",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0nqrVlkPbsRi5gnwNdUPu9",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0nqrVlkPbsRi5gnwNdUPu9",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Only Murders in the Building – Cast, Meryl Streep, Ashley Park",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2KAJPLQ5q03Sybjt9CkqQL",
+      "title" : "여자란",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2KAJPLQ5q03Sybjt9CkqQL",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2KAJPLQ5q03Sybjt9CkqQL",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jang Hye Jin",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:56j3S6jECUqwOExBifwy4B",
+      "title" : "Lettre A P",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/56j3S6jECUqwOExBifwy4B",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:56j3S6jECUqwOExBifwy4B",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Paris Combo",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:4oYzwOTWpP3JTyKrTHJtqw",
+      "title" : "Awaken",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/4oYzwOTWpP3JTyKrTHJtqw",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:4oYzwOTWpP3JTyKrTHJtqw",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Big Wild",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2McT9smAArZgp6jKdLnL0X",
+      "title" : "Mexico",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2McT9smAArZgp6jKdLnL0X",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2McT9smAArZgp6jKdLnL0X",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "CAKE",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5SnpdpLETTXfv9dq448mF5",
+      "title" : "Love Will Come Through (SIA Charity Single)",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5SnpdpLETTXfv9dq448mF5",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5SnpdpLETTXfv9dq448mF5",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Travis",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7tvi0rsLWMSf9lxEqrfVZt",
+      "title" : "Breathe Easy",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7tvi0rsLWMSf9lxEqrfVZt",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7tvi0rsLWMSf9lxEqrfVZt",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Blue",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7BfdM7poPAeu0zrImvSECr",
+      "title" : "Don't Rest Your Weight On Me Now",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7BfdM7poPAeu0zrImvSECr",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7BfdM7poPAeu0zrImvSECr",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Peter Bradley Adams",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6PNFXvtQYKrVRcVdanjnpk",
+      "title" : "Tell Her You Belong To Me (feat. Jeff Beck) - Bonus Track",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6PNFXvtQYKrVRcVdanjnpk",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6PNFXvtQYKrVRcVdanjnpk",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Beth Hart, Jeff Beck",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3VbN9MbSLWmGxFGrJgH9dS",
+      "title" : "I Choose You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3VbN9MbSLWmGxFGrJgH9dS",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3VbN9MbSLWmGxFGrJgH9dS",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Amanda Jenssen",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:7vzj43Jubjm0kUEvYwFR8T",
+      "title" : "Ecos De Amor",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/7vzj43Jubjm0kUEvYwFR8T",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:7vzj43Jubjm0kUEvYwFR8T",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jesse & Joy, Jesse",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3CV4lFELdziNM1OnHU8nwz",
+      "title" : "I Get to Love You",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3CV4lFELdziNM1OnHU8nwz",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3CV4lFELdziNM1OnHU8nwz",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Ruelle",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:6AcLwmbR6ZsUm6zt7AgT1c",
+      "title" : "Love Too Much",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/6AcLwmbR6ZsUm6zt7AgT1c",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:6AcLwmbR6ZsUm6zt7AgT1c",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Hunter Hayes",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3Rkk851fZjIsglV2jbBPDd",
+      "title" : "Humble And Kind",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3Rkk851fZjIsglV2jbBPDd",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3Rkk851fZjIsglV2jbBPDd",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Tim McGraw",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:5OEJqtiqkbrG4bJGlcEhe7",
+      "title" : "Dime Que No",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/5OEJqtiqkbrG4bJGlcEhe7",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:5OEJqtiqkbrG4bJGlcEhe7",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Jesse & Joy",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:2WYckjv3OaeD8IxNTsUsOm",
+      "title" : "Between",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/2WYckjv3OaeD8IxNTsUsOm",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:2WYckjv3OaeD8IxNTsUsOm",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Vienna Teng",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:3WCYHiRc93BbPuzBZN13dr",
+      "title" : "Water",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/3WCYHiRc93BbPuzBZN13dr",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:3WCYHiRc93BbPuzBZN13dr",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Brenn!",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:0y9zGLSNT4zSdHldPbz4H8",
+      "title" : "The Good Part",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/0y9zGLSNT4zSdHldPbz4H8",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:0y9zGLSNT4zSdHldPbz4H8",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Forest Blakk",
+      "source" : "spotify"
+    },
+    {
+      "startTime" : 0,
+      "spotifyURI" : "spotify:track:75E0t0lmp3gSEynv3Dl4Kj",
+      "title" : "You’ll Be The Proof (feat. Joy Williams) [TV Edit]",
+      "spotifyExternalURL" : "https:\/\/open.spotify.com\/track\/75E0t0lmp3gSEynv3Dl4Kj",
+      "danceStyles" : [
+
+      ],
+      "songHash" : "spotify:75E0t0lmp3gSEynv3Dl4Kj",
+      "tempoPercentage" : 0,
+      "customStyle" : "",
+      "gainCorrectiondB" : 0,
+      "artist" : "Forest Blakk, Joy Williams",
+      "source" : "spotify"
+    }
+  ]
+}
