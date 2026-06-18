@@ -8,38 +8,201 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import Combine
+import AppKit
 
 // MARK: - WINDOW 1: Main Control View
 struct ContentView: View {
     @StateObject private var player = PlayerController()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
-            HSplitView {
-                PlaylistView(player: player)
-                    .frame(minWidth: 240, maxWidth: 320)
-                LibraryTableView(player: player)
-            }
-            
-            if player.selectedTrackForEditing != nil {
-                Color.black.opacity(0.4)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            player.selectedTrackForEditing = nil
-                        }
-                    }
-                
-                HStack {
-                    Spacer()
-                    MetadataEditorPanel(player: player)
-                        .frame(width: 320)
-                        .transition(.move(edge: .trailing))
+            if player.hasLoadedProject {
+                HSplitView {
+                    PlaylistView(player: player)
+                        .frame(minWidth: 240, maxWidth: 320)
+                    LibraryTableView(player: player)
                 }
+                
+                if player.selectedTrackForEditing != nil {
+                    Color.black.opacity(0.4)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                player.selectedTrackForEditing = nil
+                            }
+                        }
+                    
+                    HStack {
+                        Spacer()
+                        MetadataEditorPanel(player: player)
+                            .frame(width: 320)
+                            .transition(.move(edge: .trailing))
+                    }
+                }
+            } else {
+                ProjectWelcomeView(player: player)
             }
         }
         .background(Color(hex: "#0e0e10"))
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: player.selectedTrackForEditing)
+        .navigationTitle(player.projectName)
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .inactive || newPhase == .background {
+                player.saveProjectOnCloseIfNeeded()
+            }
+        }
+    }
+}
+
+struct ProjectWelcomeView: View {
+    @ObservedObject var player: PlayerController
+    @State private var projectName: String = "Dance Player Project"
+    @State private var autosaveEnabled: Bool = true
+
+    private var wantsAutosave: Bool {
+        autosaveEnabled
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hex: "#111114"),
+                    Color(hex: "#08080a"),
+                    Color(hex: "#15151a")
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Spacer()
+
+                VStack(spacing: 18) {
+                    AppLogoView()
+                        .frame(width: 128, height: 128)
+
+                    VStack(spacing: 8) {
+                        Text("Dance Player")
+                            .font(.system(size: 40, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+
+                        Text("Create or import a project package")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(Color(hex: "#a1a1aa"))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    TextField("Project Name", text: $projectName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 15, weight: .medium))
+                        .onSubmit {
+                            player.beginNewProjectFlow(
+                                named: projectName,
+                                autosaveRequested: wantsAutosave
+                            )
+                        }
+                        .submitLabel(.done)
+
+                    Toggle("Autosave", isOn: $autosaveEnabled)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text("When enabled, choose a folder and the project stays self-contained there.")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#71717a"))
+                }
+                .padding(20)
+                .frame(maxWidth: 520)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color(hex: "#111114").opacity(0.88))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        )
+                )
+
+                HStack(spacing: 14) {
+                    Button("Create New Project") {
+                        player.beginNewProjectFlow(
+                            named: projectName,
+                            autosaveRequested: wantsAutosave
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Import Existing Project") {
+                        player.beginImportProjectFlow(
+                            named: projectName,
+                            autosaveRequested: wantsAutosave
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .controlSize(.large)
+
+                Spacer()
+            }
+            .padding(32)
+            .frame(maxWidth: 760)
+
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Text("Created by Samuel Desai")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(hex: "#71717a"))
+                        .padding(.trailing, 18)
+                        .padding(.bottom, 12)
+                }
+            }
+        }
+    }
+}
+
+struct AppLogoView: View {
+    private var logoImage: NSImage? {
+        guard let url = Bundle.main.url(forResource: "logo", withExtension: "jpg") else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    var body: some View {
+        Group {
+            if let logoImage {
+                Image(nsImage: logoImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 4)
+            } else {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: "#1f2937"), Color(hex: "#0f172a")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        VStack(spacing: 6) {
+                            Image(systemName: "music.note.list")
+                                .font(.system(size: 40, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
+                            Text("DP")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                    )
+                    .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 4)
+            }
+        }
     }
 }
 
@@ -48,13 +211,9 @@ struct PlaylistView: View {
     @ObservedObject var player: PlayerController
     @State private var draggedTrack: Track? = nil
     
-    // States allocated to manage the native macOS picker panels
-    @State private var isShowingExporter = false
-    @State private var isShowingImporter = false
     @State private var isShowingAddMenu = false
     @State private var isShowingSpotifyImporter = false
     @State private var spotifyImportKind: SpotifyImportKind = .track
-    @State private var activeExportDocument: JSONLibraryDocument? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -149,9 +308,9 @@ struct PlaylistView: View {
                 HStack(spacing: 12) {
                     // IMPORT SET TEXT BUTTON
                     Button(action: {
-                        self.isShowingImporter = true
+                        player.importProjectPackage()
                     }) {
-                        Text("Import Metadata")
+                        Text("Import Project")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(Color(hex: "#a3a3ac"))
                             .frame(maxWidth: .infinity)
@@ -163,12 +322,9 @@ struct PlaylistView: View {
                     
                     // EXPORT SET TEXT BUTTON
                     Button(action: {
-                        if let rawData = player.generateLiveLibraryJSONData() {
-                            self.activeExportDocument = JSONLibraryDocument(data: rawData)
-                            self.isShowingExporter = true
-                        }
+                        player.saveProjectAs()
                     }) {
-                        Text("Export Metadata")
+                        Text("Save As")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(Color(hex: "#a3a3ac"))
                             .frame(maxWidth: .infinity)
@@ -186,37 +342,6 @@ struct PlaylistView: View {
         .background(Color(hex: "#09090b"))
         .sheet(isPresented: $isShowingSpotifyImporter) {
             SpotifyImportSheet(player: player, kind: spotifyImportKind)
-        }
-        // NATIVE MAC LOCATIONS PICKER EXPORTER
-        .fileExporter(
-            isPresented: $isShowingExporter,
-            document: activeExportDocument,
-            contentType: .json,
-            defaultFilename: "dance_player_library_export"
-        ) { result in
-            if case .success(let savedURL) = result {
-                print("JSON File successfully committed via user picker target: \(savedURL.path)")
-            }
-        }
-        // NATIVE MAC FILE IMPORTER LOCATION PICKER
-        .fileImporter(
-            isPresented: $isShowingImporter,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let selectedURL = urls.first else { return }
-                let accessSecure = selectedURL.startAccessingSecurityScopedResource()
-                if let rawData = try? Data(contentsOf: selectedURL) {
-                    player.importAndMergeLibraryChanges(from: rawData)
-                }
-                if accessSecure {
-                    selectedURL.stopAccessingSecurityScopedResource()
-                }
-            case .failure(let error):
-                print("File selection error: \(error.localizedDescription)")
-            }
         }
     }
 }
@@ -719,11 +844,11 @@ struct LibraryTableView: View {
                                 Rectangle()
                                         .fill(Color(hex: "#71717a"))
                                         .frame(height: 1)
-                            }
-                        }
                     }
-                }
             }
+        }
+    }
+}
             
             PlaybackStatusBar(player: player)
                 .padding(.horizontal, 16)
@@ -899,7 +1024,19 @@ struct MetadataEditorPanel: View {
                     importCoverArtImage()
                 }
             }
+            
+            
             .frame(maxWidth: .infinity)
+            .padding(.top, 10)
+            
+            Text("Click the image above to change the cover art")
+                .gridColumnAlignment(.center)
+                .font(.system(size: 8))
+                .foregroundColor(.gray)
+            
+            Divider()
+                .background(Color(hex: "#27272a"))
+                .padding(.vertical, 4)
             
             // Meta Fields
             VStack(alignment: .leading, spacing: 4) {
@@ -1355,24 +1492,6 @@ struct TransportButtonStyle: ButtonStyle {
             .frame(width: primary ? 28 : 22, height: 22)
             .background(primary ? Color(hex: "#27272a") : Color.clear)
             .cornerRadius(4)
-    }
-}
-
-struct JSONLibraryDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-    
-    var dataPayload: Data
-
-    init(data: Data) {
-        self.dataPayload = data
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        self.dataPayload = Data()
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        return FileWrapper(regularFileWithContents: dataPayload)
     }
 }
 

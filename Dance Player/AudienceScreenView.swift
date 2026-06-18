@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - FEATURE 3: WINDOW 2: Public Presentation Screen (Theater Mode)
 struct PublicDisplayWindowView: View {
     @ObservedObject var player: PlayerController
 
@@ -25,7 +24,9 @@ struct PublicDisplayWindowView: View {
     var body: some View {
         ZStack {
             GeometryReader { geo in
-                if let currentTrack = player.currentTrack, let art = currentTrack.artwork {
+                if player.showThankYouScreen {
+                    Color(hex: "#0a0a0c")
+                } else if let currentTrack = player.currentTrack, let art = currentTrack.artwork {
                     Image(nsImage: art)
                         .resizable()
                         .scaledToFill()
@@ -41,7 +42,19 @@ struct PublicDisplayWindowView: View {
             Color.black.opacity(0.75)
                 .edgesIgnoringSafeArea(.all)
 
-            if player.isBetweenSongs {
+            if player.showThankYouScreen {
+                VStack(spacing: 14) {
+                    Text("Thank You For Coming")
+                        .font(.system(size: 54, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+
+                    Text("The set has finished.")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(Color(hex: "#a1a1aa"))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if player.isBetweenSongs {
                             VStack(spacing: 0) {
                                 Spacer()
                                 
@@ -178,7 +191,7 @@ struct PublicDisplayWindowView: View {
                         
                         VStack(alignment: .leading, spacing: 0) {
                             Text(current.title)
-                                .font(.system(size: 34, weight: .bold))
+                                .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(.white)
                                 .lineLimit(2)
                                 .padding(.bottom, 12)
