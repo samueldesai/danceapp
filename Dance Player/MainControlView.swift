@@ -155,7 +155,7 @@ struct ProjectWelcomeView: View {
                 Spacer()
                 HStack {
                     Spacer()
-                    Text("Created by Samuel Desai")
+                    Text("Created by Samuel Desai. Special thanks to Akshay Srivatsan, Rehman Hassan, Wally Niu, and Joseph Lucero for input.")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Color(hex: "#71717a"))
                         .padding(.trailing, 18)
