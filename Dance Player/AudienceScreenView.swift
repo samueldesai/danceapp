@@ -106,7 +106,6 @@ struct PublicDisplayWindowView: View {
                                     Button(action: {
                                         player.togglePlayPause()
                                     }) {
-                                        // Uniform circular play/pause control button used for both active and paused states
                                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                                             .font(.system(size: 18, weight: .medium))
                                             .foregroundColor(.white)
@@ -135,7 +134,7 @@ struct PublicDisplayWindowView: View {
                                                     .frame(width: 64, height: 64)
                                                     .cornerRadius(6)
                                             } else {
-                                                RoundedRectangle(cornerRadius: 6)
+                                                RoundedRectangle(cornerRadius: 4)
                                                     .fill(Color(hex: "#18181b"))
                                                     .frame(width: 64, height: 64)
                                                     .overlay(Image(systemName: "music.note").font(.system(size: 16)).foregroundColor(Color(hex: "#3f3f46")))
@@ -176,7 +175,7 @@ struct PublicDisplayWindowView: View {
                                     .resizable()
                                     .scaledToFill()
                             } else {
-                                RoundedRectangle(cornerRadius: 1)
+                                RoundedRectangle(cornerRadius: 4)
                                     .fill(Color(hex: "#16161a"))
                                     .overlay(
                                         Image(systemName: "music.note")
@@ -275,7 +274,7 @@ struct PublicDisplayWindowView: View {
                             
                             VStack(spacing: 14) {
                                 if upNextTracks.isEmpty {
-                                    Text("End of Playback Queue")
+                                    Text("No more songs")
                                         .font(.system(size: 13).italic())
                                         .foregroundColor(Color(hex: "#52525b"))
                                         .frame(maxWidth: .infinity, alignment: .leading)

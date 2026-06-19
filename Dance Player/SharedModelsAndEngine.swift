@@ -17,10 +17,7 @@ import Security
 
 // MARK: - Global Preset Data
 let predefinedDanceStyles = [
-    "Rotary Waltz", "Fast Waltz", "Accelerating Waltz", "Mazurka", "Redowa", "Polka",
-    "Schottische", "Cross-Step Waltz", "One-Step", "Valse Asymétrique", "Lindy Hop",
-    "4-Count Swing", "Foxtrot", "Shag", "Balboa", "Charleston",
-    "West Coast Swing", "Night Club Two Step", "Fusion", "Hustle", "Bachata", "Cha-Cha", "Salsa", "Tango", "Merengue", "Tokyo Polka", "Barbie Line Dance", "Shivers Line Dance", "Bohemian National Polka", "Romany Polka", "Dawn Mazurka", "Mixer", "Jam", "Dance with a Stranger", "Solo Jazz", "Other"
+    "Cross-Step Waltz", "Rotary Waltz", "Lindy Hop", "West Coast Swing", "Fast Waltz", "Accelerating Waltz", "Mazurka", "Redowa", "Polka", "Schottische", "One-Step", "Valse Asymétrique", "4-Count Swing", "Foxtrot", "Shag", "Balboa", "Charleston", "Night Club Two Step", "Fusion", "Hustle", "Bachata", "Cha-Cha", "Salsa", "Tango", "Merengue", "Tokyo Polka", "Barbie Line Dance", "Shivers Line Dance", "Solo Jazz", "Bohemian National Polka", "Romany Polka", "Dawn Mazurka", "Mixer", "Jam", "Dance with a Stranger", "Last West Coast Swing", "Last Lindy Hop", "Last Cross-Step Waltz", "Last Rotary Waltz", "Other",
 ]
 
 // MARK: - Models
@@ -159,6 +156,17 @@ private extension NSImage {
     }
 }
 
+private extension Track {
+    /// Artwork to embed when persisting this track to disk (project.json or the
+    /// app library JSON). Spotify artwork is always re-downloaded fresh from the
+    /// Spotify API on import (see SpotifyService.makeTrack), so there's no need
+    /// to save a copy of it anywhere — doing so only bloats the saved files.
+    var persistableArtworkData: Data? {
+        guard source == .local else { return nil }
+        return artwork?.projectPackageData
+    }
+}
+
 struct ProjectPackageTrack: Codable {
     var songHash: String
     var source: TrackSource
@@ -194,8 +202,11 @@ struct ProjectPackageTrack: Codable {
         self.gainCorrectiondB = track.gainCorrectiondB
         self.duration = track.duration
         self.localFileName = localFileName
-        self.artworkFileName = artworkFileName
-        self.artworkData = track.artwork?.projectPackageData
+        // Spotify artwork is never persisted (folder or inline) — it's re-fetched
+        // fresh from Spotify on import. Only local-track artwork is stored, and
+        // only inline as a fallback when no on-disk artwork file was written.
+        self.artworkFileName = track.source == .local ? artworkFileName : nil
+        self.artworkData = (track.source == .local && artworkFileName == nil) ? track.persistableArtworkData : nil
     }
 
     var persistedTrack: PersistedTrack {
@@ -1198,7 +1209,6 @@ class PlayerController: ObservableObject {
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
-
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             do {
@@ -1235,6 +1245,32 @@ class PlayerController: ObservableObject {
 
     private func ensureDirectoryExists(at url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    /// Removes any previously-saved local audio copies for a track that no longer match
+    /// the file we're about to keep. This is a safety net for the case where a track's
+    /// source file extension changes for some other reason (the trailing-silence trim
+    /// itself no longer re-encodes or replaces files — see applyDetectedTrailingSilenceTrim)
+    /// so we never end up with two on-disk copies of the same track's audio.
+    private func removeStaleLocalAudioCopies(
+        songHash: String,
+        keepingFileName fileNameToKeep: String,
+        in folderURL: URL
+    ) {
+        let fileManager = FileManager.default
+        let safeHash = songHash.replacingOccurrences(of: ":", with: "_")
+
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: folderURL,
+            includingPropertiesForKeys: nil
+        ) else { return }
+
+        for fileURL in contents {
+            let name = fileURL.lastPathComponent
+            guard name != fileNameToKeep else { continue }
+            guard name.hasPrefix("\(safeHash).") else { continue }
+            try? fileManager.removeItem(at: fileURL)
+        }
     }
 
     private func writeStandaloneProjectArtworkIfNeeded(
@@ -1293,7 +1329,16 @@ class PlayerController: ObservableObject {
                 try ensureDirectoryExists(at: projectArtworkFolderURL)
             }
 
-            let destinationAudioURL = projectFilesFolderURL.appendingPathComponent(projectPackageFileName(for: track))
+            let destinationFileName = projectPackageFileName(for: track)
+            let destinationAudioURL = projectFilesFolderURL.appendingPathComponent(destinationFileName)
+
+            // Safety net: drop any stale copy of this track under a different
+            // file extension, so we never keep two on-disk copies for one song.
+            removeStaleLocalAudioCopies(
+                songHash: track.songHash,
+                keepingFileName: destinationFileName,
+                in: projectFilesFolderURL
+            )
 
             if sourceURL.standardizedFileURL != destinationAudioURL.standardizedFileURL {
                 if FileManager.default.fileExists(atPath: destinationAudioURL.path) {
@@ -2248,9 +2293,9 @@ class PlayerController: ObservableObject {
                 let totalDuration = Double(frameCount) / format.sampleRate
                 
                 if totalDuration - calculatedDuration > 0.5 {
-                    print("Trimming detected! Saving trailing \(totalDuration - calculatedDuration)s of silence.")
-                    // Security scope released inside performAssetExport when done.
-                    self.performAssetExport(sourceURL: sourceURL, endTrimTime: calculatedDuration, trackIndex: index, releaseSecurityScope: scopedURL)
+                    print("Trimming detected! Marking trailing \(totalDuration - calculatedDuration)s of silence as trimmed (metadata only).")
+                    scopedURL?.stopAccessingSecurityScopedResource()
+                    self.applyDetectedTrailingSilenceTrim(endTrimTime: calculatedDuration, trackIndex: index)
                 } else {
                     print("No meaningful trailing silence detected.")
                     scopedURL?.stopAccessingSecurityScopedResource()
@@ -2266,55 +2311,31 @@ class PlayerController: ObservableObject {
         }
     }
 
-    private func performAssetExport(sourceURL: URL, endTrimTime: TimeInterval, trackIndex: Int, releaseSecurityScope scopedURL: URL? = nil) {
-        let asset = AVURLAsset(url: sourceURL)
-        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            scopedURL?.stopAccessingSecurityScopedResource()
-            return
-        }
-        
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
-        
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
-        exportSession.timeRange = CMTimeRange(start: .zero, end: CMTime(seconds: endTrimTime, preferredTimescale: 600))
-        
-        Task { [weak self] in
-            do {
-                try await exportSession.export(to: outputURL, as: .m4a)
-                // Security scope is no longer needed once the export to the
-                // temp file completes — release it before the main-thread work.
-                scopedURL?.stopAccessingSecurityScopedResource()
-                await MainActor.run {
-                    guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
-                    
-                    self.tracks[trackIndex].url = outputURL
-                    self.tracks[trackIndex].duration = endTrimTime
-                    self.materializeLocalTrackAssetsIfNeeded(
-                        &self.tracks[trackIndex],
-                        sourceURL: outputURL,
-                        artwork: self.tracks[trackIndex].artwork
-                    )
-                    
-                    if self.currentIndex == trackIndex {
-                        self.synchronizeActiveTrackSettings()
-                    }
-                    print("Track trim committed successfully via hardware exporter.")
-                    
-                    // --- NEW: Auto-calculate ReplayGain after a successful trim ---
-                    self.calculateLoudness(forTrackAt: trackIndex)
-                }
-            } catch {
-                scopedURL?.stopAccessingSecurityScopedResource()
-                print("Export session failed: \(error.localizedDescription)")
-                
-                await MainActor.run {
-                    guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
-                    self.calculateLoudness(forTrackAt: trackIndex)
-                }
+    /// Records the auto-detected trailing-silence boundary as `endTime` metadata rather
+    /// than physically re-encoding and replacing the imported audio file. This keeps the
+    /// original file on disk untouched — so clearing the trim (e.g. setting endTime back
+    /// to the full duration) plays the complete untrimmed audio — and the trim is restored
+    /// on relaunch the same way as any other persisted setting, by re-applying this
+    /// metadata to the track matched by its songHash.
+    private func applyDetectedTrailingSilenceTrim(endTrimTime: TimeInterval, trackIndex: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
+
+            // Don't clobber a trim the user may have already set manually in the time
+            // it took the background scan to finish.
+            if self.tracks[trackIndex].endTime == nil {
+                self.tracks[trackIndex].endTime = endTrimTime
             }
+
+            self.saveTrack(self.tracks[trackIndex])
+            self.scheduleProjectAutosave()
+
+            if self.currentIndex == trackIndex {
+                self.synchronizeActiveTrackSettings()
+            }
+
+            print("Trailing silence trim applied as metadata; original file left untouched.")
+            self.calculateLoudness(forTrackAt: trackIndex)
         }
     }
 
@@ -2385,7 +2406,7 @@ class PlayerController: ObservableObject {
                 tempoPercentage: track.tempoPercentage,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
-                artworkData: track.artwork?.projectPackageData
+                artworkData: track.persistableArtworkData
             )
 
         } else {
@@ -2405,7 +2426,7 @@ class PlayerController: ObservableObject {
                     tempoPercentage: track.tempoPercentage,
                     measuredLoudness: track.measuredLoudness,
                     gainCorrectiondB: track.gainCorrectiondB,
-                    artworkData: track.artwork?.projectPackageData
+                    artworkData: track.persistableArtworkData
                 )
             )
         }
@@ -2419,6 +2440,7 @@ class PlayerController: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        panel.directoryURL = defaultPanelDirectoryURL
         panel.message = "Choose a destination folder for the exported project package."
         panel.prompt = "Export"
 
@@ -2440,6 +2462,7 @@ class PlayerController: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.directoryURL = defaultPanelDirectoryURL
         panel.message = "Choose an exported project folder."
         panel.prompt = "Import"
 
@@ -2454,7 +2477,6 @@ class PlayerController: ObservableObject {
             alert.addButton(withTitle: "Clear Existing")
             alert.addButton(withTitle: "Keep Existing")
             alert.addButton(withTitle: "Cancel")
-
             switch alert.runModal() {
             case .alertFirstButtonReturn:
                 shouldClearExistingTracks = true
@@ -2529,6 +2551,7 @@ class PlayerController: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        panel.directoryURL = defaultPanelDirectoryURL
         panel.message = "Choose where the project folder should live."
         panel.prompt = "Choose"
 
@@ -2549,6 +2572,7 @@ class PlayerController: ObservableObject {
         projectPanel.allowsMultipleSelection = false
         projectPanel.canChooseDirectories = true
         projectPanel.canChooseFiles = false
+        projectPanel.directoryURL = defaultPanelDirectoryURL
         projectPanel.message = "Choose an exported project folder."
         projectPanel.prompt = "Import"
 
@@ -2598,20 +2622,24 @@ class PlayerController: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "Save Project As"
         alert.informativeText = "Choose a new project name."
-        let nameField = NSTextField(string: safeProjectName)
+        let nameField = NSTextField(string: "")
+        nameField.placeholderString = "Project Name"
         nameField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
         alert.accessoryView = nameField
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = nameField
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let newName = sanitizeProjectName(nameField.stringValue)
+        let typedName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newName = sanitizeProjectName(typedName.isEmpty ? "\(safeProjectName) copy" : typedName)
 
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
+        panel.directoryURL = defaultPanelDirectoryURL
         panel.message = "Choose where the project should be saved."
         panel.prompt = "Save"
 
@@ -2619,9 +2647,7 @@ class PlayerController: ObservableObject {
             guard let self, response == .OK, let parentURL = panel.url else { return }
             DispatchQueue.main.async {
                 self.projectName = newName
-                // Build the named project subfolder inside the chosen parent.
-                // Previously folderURL was stored directly, so no named
-                // subdirectory was ever created.
+                
                 let projectFolder = parentURL.appendingPathComponent(
                     self.sanitizeProjectName(newName), isDirectory: true
                 )
@@ -2663,6 +2689,15 @@ class PlayerController: ObservableObject {
             if track.source == .local, track.url.isFileURL {
                 localFileName = projectPackageFileName(for: track)
                 let destinationURL = filesFolderURL.appendingPathComponent(localFileName!)
+
+                // Safety net: drop any stale copy of this track under a different
+                // file extension, so we never keep two on-disk copies for one song.
+                removeStaleLocalAudioCopies(
+                    songHash: track.songHash,
+                    keepingFileName: localFileName!,
+                    in: filesFolderURL
+                )
+
                 // Guard: if the track already lives at the destination (e.g. after
                 // autosave runs on a project whose files are already materialized),
                 // skip the delete+copy — otherwise we delete the file and then
@@ -2675,7 +2710,9 @@ class PlayerController: ObservableObject {
                 }
             }
 
-            if let artworkData = track.artwork?.projectPackageData {
+            // Spotify artwork is intentionally not written to the artwork folder —
+            // it's re-downloaded fresh from Spotify on import (see persistableArtworkData).
+            if track.source == .local, let artworkData = track.persistableArtworkData {
                 artworkFileName = "\(track.songHash).png"
                 let artworkURL = artworkFolderURL.appendingPathComponent(artworkFileName!)
                 if fileManager.fileExists(atPath: artworkURL.path) {
@@ -2897,11 +2934,19 @@ class PlayerController: ObservableObject {
                 tempoPercentage: track.tempoPercentage,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
-                artworkData: track.artwork?.projectPackageData
+                artworkData: track.persistableArtworkData
             )
         })
 
         writeLibrary(library)
+    }
+
+    /// Default starting location for folder-picker panels. Without this, NSOpenPanel
+    /// silently remembers whatever directory was last used (even across launches),
+    /// which is why panels appeared to "remember" the previous session and Save As
+    /// kept landing back in the original project's folder. Always start at Desktop.
+    private var defaultPanelDirectoryURL: URL? {
+        FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
     }
 
     private func uniqueProjectPackageFolderURL(
@@ -2946,7 +2991,7 @@ class PlayerController: ObservableObject {
                 tempoPercentage: track.tempoPercentage,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
-                artworkData: track.artwork?.projectPackageData
+                artworkData: track.persistableArtworkData
             )
         }
         

@@ -1,6 +1,6 @@
 //
 //  creatingjsons.swift
-//  This file can be used to add data to the json files for the 
+//  This file can be used to add data to the json files for auto tagging. Not used in the active player state.
 //  Dance Player
 //
 //  Created by Samuel Desai on 6/17/26.
@@ -77,7 +77,7 @@ final class SpotifyTaggedJSONExporter {
     private let manifests: [SpotifyTaggedPlaylistManifest] = [
         // Configure one manifest per style. If multiple manifests share the same
         // outputFileName, they are written into the same JSON file as separate
-        // style sections.
+        // style sections. Playlist URLs only extract the first 100 songs of the playlist.
         //
         // Example:
         // SpotifyTaggedPlaylistManifest(

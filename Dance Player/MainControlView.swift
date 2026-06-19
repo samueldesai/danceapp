@@ -57,7 +57,7 @@ struct ContentView: View {
 
 struct ProjectWelcomeView: View {
     @ObservedObject var player: PlayerController
-    @State private var projectName: String = "Dance Player Project"
+    @State private var projectName: String = ""
     @State private var autosaveEnabled: Bool = true
 
     private var wantsAutosave: Bool {
@@ -107,12 +107,12 @@ struct ProjectWelcomeView: View {
                         }
                         .submitLabel(.done)
 
-                    Toggle("Autosave", isOn: $autosaveEnabled)
+                    Toggle("Save project", isOn: $autosaveEnabled)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
 
-                    Text("When enabled, choose a folder and the project stays self-contained there.")
+                    Text("When enabled, your set will autosave for future use.")
                         .font(.system(size: 12))
                         .foregroundColor(Color(hex: "#71717a"))
                 }
@@ -167,21 +167,21 @@ struct ProjectWelcomeView: View {
 }
 
 struct AppLogoView: View {
-    private var logoImage: NSImage? {
-        guard let url = Bundle.main.url(forResource: "logo", withExtension: "jpg") else { return nil }
-        return NSImage(contentsOf: url)
+    private var appIcon: NSImage? {
+        return NSApplication.shared.applicationIconImage
     }
 
     var body: some View {
         Group {
-            if let logoImage {
-                Image(nsImage: logoImage)
+            if let appIcon {
+                Image(nsImage: appIcon)
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 4)
             } else {
+                // Your existing placeholder fallback
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .fill(
                         LinearGradient(
@@ -206,7 +206,7 @@ struct AppLogoView: View {
     }
 }
 
-// MARK: - PLAYLIST QUEUE (FIXED DRAG & DROP ENGINE)
+// MARK: - PLAYLIST QUEUE
 struct PlaylistView: View {
     @ObservedObject var player: PlayerController
     @State private var draggedTrack: Track? = nil
@@ -473,7 +473,7 @@ struct SpotifyImportSheet: View {
                         submitPrimaryAction()
                     }
                 if kind == .playlist {
-                    Text("This import method only reads the first 100 songs from the Spotify embed page.")
+                    Text("This import method only reads the first 100 songs of a playlist.")
                         .font(.system(size: 11))
                         .foregroundColor(Color(hex: "#f97316"))
                         .fixedSize(horizontal: false, vertical: true)
@@ -732,14 +732,8 @@ struct PlaylistRow: View {
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .font(.system(size: 11, weight: isPlaying ? .bold : .medium))
-                    .foregroundColor(isPlaying ? .white : Color(hex: "#a3a3ac"))
-                    .lineLimit(1)
-                Text(track.artist)
-                    .font(.system(size: 9))
-                    .foregroundColor(Color(hex: "#6b6b75"))
-                    .lineLimit(1)
+                MarqueeText(text: track.title, font: .system(size: 11, weight: isPlaying ? .bold : .medium), color: isPlaying ? .white : Color(hex: "#a3a3ac"))
+                MarqueeText(text: track.artist, font: .system(size: 9), color: Color(hex: "#6b6b75"))
             }
             
             Spacer()
@@ -973,7 +967,11 @@ struct MetadataEditorPanel: View {
     
     @State private var tempoPercentage: Double = 0.0
     @State private var localArtwork: NSImage? = nil
-
+    @State private var isEditingTempoText: Bool = false
+    @State private var tempoTextInput: String = ""
+    @State private var customTempoOverride: Double? = nil
+    
+    
     private var isEditingSpotifyTrack: Bool {
         player.selectedTrackForEditing?.source == .spotify
     }
@@ -1103,12 +1101,32 @@ struct MetadataEditorPanel: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.gray)
                         Spacer()
-                        Text(String(format: "%+.1f%%", tempoPercentage))
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(tempoPercentage == 0 ? .gray : .blue)
+                        
+                        if isEditingTempoText {
+                            TextField("e.g. -8.9", text: $tempoTextInput)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                .font(.system(size: 11, weight: .bold))
+                                .onSubmit {
+                                    commitTempoTextInput()
+                                }
+                                .onExitCommand {
+                                    isEditingTempoText = false
+                                    tempoTextInput = ""
+                                }
+                        } else {
+                            Text(String(format: "%+.1f%%", tempoPercentage))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(tempoPercentage == 0 ? .gray : .blue)
+                                .help("Click to type a custom tempo value")
+                                .onTapGesture {
+                                    tempoTextInput = String(format: "%.1f", tempoPercentage)
+                                    isEditingTempoText = true
+                                }
+                        }
                     }
                     
-                    Slider(value: $tempoPercentage, in: -25...25, step: 0.5)
+                    TicklessSlider(value: $tempoPercentage, range: -25...25, step: 0.5)
                         .accentColor(.blue)
                     
                     HStack {
@@ -1116,7 +1134,10 @@ struct MetadataEditorPanel: View {
                             .font(.system(size: 9))
                             .foregroundColor(.gray)
                         Spacer()
-                        Button("Reset Tempo") { tempoPercentage = 0.0 }
+                        Button("Reset") {
+                            tempoPercentage = 0.0
+                            customTempoOverride = nil
+                        }
                             .font(.system(size: 9))
                             .buttonStyle(.plain)
                         Spacer()
@@ -1126,7 +1147,7 @@ struct MetadataEditorPanel: View {
                     }
                 }
             } else {
-                Text("Spotify playback starts at the start timestamp and pauses at the end timestamp. Note that you cannot change tempo on Spotify files.")
+                Text("Spotify playback starts at the start timestamp and pauses at the end timestamp. You cannot change the tempo of Spotify files.")
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#a3a3ac"))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1145,6 +1166,16 @@ struct MetadataEditorPanel: View {
         .onDisappear {
             saveMetadataModifications()
         }
+    }
+    
+    private func commitTempoTextInput() {
+        if let parsed = Double(tempoTextInput) {
+            let clamped = max(-25, min(25, parsed))
+            customTempoOverride = clamped
+            tempoPercentage = clamped
+        }
+        isEditingTempoText = false
+        tempoTextInput = ""
     }
     
     private func hydrateFormFields() {
@@ -1183,9 +1214,7 @@ struct MetadataEditorPanel: View {
         }
     }
     
-    // Core structural calculations remain perfect, but don't clear player state context anymore since onDisappear handles it
     func saveMetadataModifications() {
-        // Look for the last track edited inside player data cache safely if index reference dropped early
         guard let target = player.selectedTrackForEditing ?? player.tracks.first(where: { $0.title == editableTitle || $0.artist == editableArtist }),
               let matchIdx = player.tracks.firstIndex(where: { $0.id == target.id }) else { return }
         
@@ -1367,27 +1396,30 @@ struct PlaybackStatusBar: View {
                 .cornerRadius(4)
                 .clipped()
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(hex: "#2e2e38"), lineWidth: 1))
-                .help("Click to change active artwork image raw payload.")
+                .help("Click to change the displayed artwork")
                 .onTapGesture {
                     player.importArtworkForCurrentTrack()
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     if let last = player.lastTrack {
-                        Text("LAST PLAYED: \(last.title) — \(last.artist) - \(last.formattedStylesDisplay)")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Color(hex: "#5b34f6"))
+                        MarqueeText(
+                            text: "LAST PLAYED: \(last.title) — \(last.artist) - \(last.formattedStylesDisplay)",
+                            font: .system(size: 15, weight: .bold),
+                            color: Color(hex: "#5b34f6")
+                        )
                     }
                     HStack(spacing: 6) {
                         if player.isBetweenSongs {
-                            Text("The Next Song Is A")
-                                .font(.system(size: 25, weight: .bold))
-                                .foregroundColor(Color(hex: "#eab308"))
+                            MarqueeText(
+                                text: "The next song is a " + (player.currentTrack?.formattedStylesDisplay ?? "-"),
+                                font: .system(size: 30, weight: .bold),
+                                color: Color(hex: "#eab308")
+                            )
                         }
                         statusDisplayView
                             .font(.system(size: 20, weight: .medium))
                             .foregroundColor(statusDisplayColor)
-                            .lineLimit(1)
                     }
                 }
                 Spacer()
@@ -1421,18 +1453,24 @@ struct PlaybackStatusBar: View {
 
         if player.isBetweenSongs {
             HStack(spacing: 0) {
-                Text(title).italic()
-                Text(" - \(artist) : \(styles)")
             }
         } else if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
-            Text(message)
-        } else if player.currentTrack?.source == .spotify {
-            HStack(spacing: 0) {
-                Text(title).italic()
-                Text(" - \(artist) : \(styles)")
+            MarqueeText(text: message, font: .system(size: 30, weight: .bold), color: statusDisplayColor)
+        } else if player.currentTrack?.source == .spotify || player.currentTrack?.source == .local {
+            ScrollingMarquee {
+                HStack(spacing: 0) {
+                    Text("Now Playing ")
+                    .font(.system(size: 30))
+
+                    Text(title).italic()
+                    .font(.system(size: 30, weight: .bold))
+
+                    Text(" - \(artist): \(styles)")
+                    .font(.system(size: 30, weight: .bold))
+                }
+                .foregroundColor(statusDisplayColor)
             }
-        } else {
-            Text(player.currentTrack?.formattedStylesDisplay ?? "Nothing playing")
+            .id("\(title)|\(artist)|\(styles)")
         }
     }
 
@@ -1483,6 +1521,104 @@ extension Text {
     }
 }
 
+/// Scrolls its content horizontally in a slow, continuous loop when the
+/// content is wider than the space available, instead of letting it get
+/// truncated with an ellipsis. Content that already fits is shown as-is.
+///
+/// IMPORTANT: the footprint this view reports to its parent is always just
+/// the single, normal (non-fixed-size) copy of `content()` — identical to a
+/// plain Text — so it never asks for extra room and never resizes the
+/// window/pane. The wider, scrolling copy used while animating is drawn in
+/// an `.overlay()`, which never affects the size of the view it's attached
+/// to, then clipped to the original footprint.
+struct ScrollingMarquee<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    /// Scroll speed in points per second. Lower = slower.
+    var speed: CGFloat = 28
+    /// Gap between the end of one pass and the start of the next.
+    var gap: CGFloat = 48
+    /// How long to pause (fully visible at the start) before each pass.
+    var pauseDuration: Double = 1.5
+
+    @State private var contentWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var startDate = Date()
+
+    private var needsScroll: Bool {
+        containerWidth > 0 && contentWidth > containerWidth + 0.5
+    }
+
+    var body: some View {
+        content()
+            .lineLimit(1)
+            // Hide the static (would-be-truncated) copy while scrolling, but
+            // keep it in the tree so the view's size never changes.
+            .opacity(needsScroll ? 0 : 1)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { containerWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, newWidth in containerWidth = newWidth }
+                }
+            )
+            .background(
+                content()
+                    .lineLimit(1)
+                    .fixedSize()
+                    .opacity(0)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear {
+                                    contentWidth = geo.size.width
+                                    startDate = Date()
+                                }
+                        }
+                    )
+            )
+            .overlay(alignment: .leading) {
+                if needsScroll {
+                    TimelineView(.animation) { timeline in
+                        let elapsed = timeline.date.timeIntervalSince(startDate)
+                        let cycleDistance = Double(contentWidth + gap)
+                        let cycleDuration = max(0.01, cycleDistance / Double(speed)) + pauseDuration
+                        let t = elapsed.truncatingRemainder(dividingBy: cycleDuration)
+                        let scrollOffset = t < pauseDuration ? 0 : CGFloat(t - pauseDuration) * speed
+
+                        HStack(spacing: gap) {
+                            content()
+                            content()
+                        }
+                        .lineLimit(1)
+                        .fixedSize()
+                        .offset(x: -scrollOffset)
+                    }
+                }
+            }
+            .clipped()
+    }
+}
+
+/// Convenience wrapper for the common case of scrolling a single piece of text.
+/// Pass `resetKey` (defaults to the text itself) if you want the scroll to
+/// restart cleanly whenever the underlying value changes, e.g. on track change.
+struct MarqueeText: View {
+    let text: String
+    var font: Font
+    var color: Color
+    var resetKey: String? = nil
+
+    var body: some View {
+        ScrollingMarquee {
+            Text(text)
+                .font(font)
+                .foregroundColor(color)
+                .lineLimit(1)
+        }
+        .id(resetKey ?? text)
+    }
+}
+
 struct TransportButtonStyle: ButtonStyle {
     var primary = false
     func makeBody(configuration: Configuration) -> some View {
@@ -1492,6 +1628,9 @@ struct TransportButtonStyle: ButtonStyle {
             .frame(width: primary ? 28 : 22, height: 22)
             .background(primary ? Color(hex: "#27272a") : Color.clear)
             .cornerRadius(4)
+            .onHover { hovering in
+                hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
+            }
     }
 }
 
@@ -1505,5 +1644,52 @@ struct DisplayWindowButtonStyle: ButtonStyle {
             .background(Color(hex: "#1c1c22"))
             .cornerRadius(5)
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color(hex: "#2e2e38"), lineWidth: 1))
+            .onHover { hovering in
+                hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
+            }
     }
 }
+
+struct TicklessSlider: NSViewRepresentable {
+    @Binding var value: Double
+    var range: ClosedRange<Double>
+    var step: Double
+    var accentColor: NSColor = .systemBlue
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider(value: value,
+                              minValue: range.lowerBound,
+                              maxValue: range.upperBound,
+                              target: context.coordinator,
+                              action: #selector(Coordinator.valueChanged(_:)))
+        slider.numberOfTickMarks = 0
+        slider.allowsTickMarkValuesOnly = false
+        slider.isContinuous = true
+        return slider
+    }
+
+    func updateNSView(_ nsView: NSSlider, context: Context) {
+        nsView.doubleValue = value
+        nsView.numberOfTickMarks = 0
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(value: $value, step: step)
+    }
+
+    class Coordinator: NSObject {
+        var value: Binding<Double>
+        var step: Double
+
+        init(value: Binding<Double>, step: Double) {
+            self.value = value
+            self.step = step
+        }
+
+        @objc func valueChanged(_ sender: NSSlider) {
+            let snapped = (sender.doubleValue / step).rounded() * step
+            value.wrappedValue = snapped
+        }
+    }
+}
+
