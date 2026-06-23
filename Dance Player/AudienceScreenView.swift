@@ -10,6 +10,13 @@ import SwiftUI
 struct PublicDisplayWindowView: View {
     @ObservedObject var player: PlayerController
 
+    private var screenKey: String {
+        if player.showThankYouScreen { return "thankYou" }
+        if player.isBetweenSongs { return "betweenSongs" }
+        if player.currentTrack != nil { return "nowPlaying" }
+        return "idle"
+    }
+
     var upNextTracks: [Track] {
         guard let currentIdx = player.currentIndex else {
             return Array(player.tracks.prefix(3))
@@ -26,6 +33,7 @@ struct PublicDisplayWindowView: View {
             GeometryReader { geo in
                 if player.showThankYouScreen {
                     Color(hex: "#0a0a0c")
+                        .transition(.opacity)
                 } else if let currentTrack = player.currentTrack, let art = currentTrack.artwork {
                     Image(nsImage: art)
                         .resizable()
@@ -33,8 +41,10 @@ struct PublicDisplayWindowView: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .blur(radius: 50)
                         .scaleEffect(1.2)
+                        .transition(.opacity)
                 } else {
                     Color(hex: "#0c0c0e")
+                        .transition(.opacity)
                 }
             }
             .edgesIgnoringSafeArea(.all)
@@ -54,6 +64,7 @@ struct PublicDisplayWindowView: View {
                         .foregroundColor(Color(hex: "#a1a1aa"))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
             } else if player.isBetweenSongs {
                             VStack(spacing: 0) {
                                 Spacer()
@@ -164,6 +175,7 @@ struct PublicDisplayWindowView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
                         } else if let current = player.currentTrack {
                 VStack(spacing: 0) {
                     Spacer()
@@ -332,7 +344,7 @@ struct PublicDisplayWindowView: View {
                     .padding(.horizontal, 40)
                     
                     Spacer()
-                        VStack(spacing: 20) { 
+                        VStack(spacing: 20) {
                             VStack(spacing: 10) {
                                 GeometryReader { geo in
                                     ZStack(alignment: .leading) {
@@ -360,17 +372,18 @@ struct PublicDisplayWindowView: View {
                                 player.togglePlayPause()
                             }) {
                                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 18, weight: .medium)) // "Small" size hierarchy
+                                    .font(.system(size: 18, weight: .medium))
                                     .foregroundColor(.white)
                                     .frame(width: 36, height: 36)
-                                    .background(Color.white.opacity(0.1)) // Subtle hover background target
+                                    .background(Color.white.opacity(0.1))
                                     .clipShape(Circle())
                             }
-                            .buttonStyle(.plain) // Prevents default macOS button styling behavior
+                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 80)
-                        .padding(.bottom, 30) // Adjusted slightly to account for the new button height
+                        .padding(.bottom, 30)
                 }
+                .transition(.opacity)
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "music.note.list")
@@ -380,8 +393,10 @@ struct PublicDisplayWindowView: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Color(hex: "#52525b"))
                 }
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.5), value: screenKey)
         .frame(minWidth: 1024, minHeight: 640)
     }
 

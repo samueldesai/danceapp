@@ -540,7 +540,7 @@ struct SpotifyImportSheet: View {
             HStack {
                 Spacer()
 
-                Button("Cancel") {
+                Button("Close") {
                     dismiss()
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
@@ -928,7 +928,7 @@ struct TrackRow: View {
                         Text(track.source == .spotify ? "Timing Settings" : "Edit Metadata")
                     }
                 }
-                .buttonStyle(DisplayWindowButtonStyle()) // Applies the exact style of the calculation button
+                .buttonStyle(DisplayWindowButtonStyle())
                 .help(track.source == .spotify ? "Set Spotify start and end timestamps." : "Edit local track metadata.")
                 
                 Spacer(minLength: 0)

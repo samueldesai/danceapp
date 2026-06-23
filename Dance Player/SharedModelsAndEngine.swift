@@ -157,10 +157,7 @@ private extension NSImage {
 }
 
 private extension Track {
-    /// Artwork to embed when persisting this track to disk (project.json or the
-    /// app library JSON). Spotify artwork is always re-downloaded fresh from the
-    /// Spotify API on import (see SpotifyService.makeTrack), so there's no need
-    /// to save a copy of it anywhere — doing so only bloats the saved files.
+
     var persistableArtworkData: Data? {
         guard source == .local else { return nil }
         return artwork?.projectPackageData
@@ -202,9 +199,6 @@ struct ProjectPackageTrack: Codable {
         self.gainCorrectiondB = track.gainCorrectiondB
         self.duration = track.duration
         self.localFileName = localFileName
-        // Spotify artwork is never persisted (folder or inline) — it's re-fetched
-        // fresh from Spotify on import. Only local-track artwork is stored, and
-        // only inline as a fallback when no on-disk artwork file was written.
         self.artworkFileName = track.source == .local ? artworkFileName : nil
         self.artworkData = (track.source == .local && artworkFileName == nil) ? track.persistableArtworkData : nil
     }
@@ -416,7 +410,7 @@ struct PopularEdit: Identifiable, CaseIterable {
             resourceName: "Tokyo Polka - Hatsune Miku",
             fileExtension: "mp3",
             danceStyles: ["Tokyo Polka"]
-        )
+        ),//TODO add T'Smidje Mixer
     ]
 }
 
@@ -633,7 +627,7 @@ final class SpotifyCallbackListener {
             Content-Type: text/html\r
             Connection: close\r
             \r
-            <html><body>You can close this window and return to Dance Player.</body></html>
+            <html><body>API connection enabled! You can close this window and return to the app.</body></html>
             """
             connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
                 connection.cancel()
@@ -830,32 +824,7 @@ final class SpotifyService {
         
         // Check for Spotify Rate Limiting (HTTP 429)
         if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
-            if retryCount < 3 {
-                var retryAfterSeconds: Double = 2.0 // Fallback default
-                
-                if let retryAfterHeader = httpResponse.value(forHTTPHeaderField: "Retry-After") {
-                    if let rawValue = Double(retryAfterHeader) {
-                        // If the value is larger than 1,000,000, it's a Unix Timestamp, not a duration
-                        if rawValue > 1_000_000 {
-                            let targetDate = Date(timeIntervalSince1970: rawValue)
-                            let remainingTime = targetDate.timeIntervalSince(Date())
-                            // Ensure we don't get a negative duration if the clock is slightly desynced
-                            retryAfterSeconds = max(0.5, remainingTime)
-                        } else {
-                            // It's a normal delta-seconds duration
-                            retryAfterSeconds = rawValue
-                        }
-                    }
-                }
-                
-                // Add a hard ceiling (e.g., max 60 seconds) so your app never sleeps for 19 hours
-                let finalSleepTime = min(60.0, retryAfterSeconds + 0.5)
-                
-                print("Spotify Rate Limit Hit! Sleeping for \(finalSleepTime)s before retry attempt #\(retryCount + 1)")
-                
-                try await Task.sleep(for: .seconds(finalSleepTime))
-                return try await apiRequest(url, clientID: clientID, retryCount: retryCount + 1)
-            }
+            let finalSleepTime = 30.0
         }
         
         try validate(response: response, data: data)
@@ -1247,11 +1216,6 @@ class PlayerController: ObservableObject {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    /// Removes any previously-saved local audio copies for a track that no longer match
-    /// the file we're about to keep. This is a safety net for the case where a track's
-    /// source file extension changes for some other reason (the trailing-silence trim
-    /// itself no longer re-encodes or replaces files — see applyDetectedTrailingSilenceTrim)
-    /// so we never end up with two on-disk copies of the same track's audio.
     private func removeStaleLocalAudioCopies(
         songHash: String,
         keepingFileName fileNameToKeep: String,
@@ -1459,11 +1423,11 @@ class PlayerController: ObservableObject {
         }
     }
     
-    func prepareTrack(index: Int, autoPlay: Bool) {
+    func prepareTrack(index: Int, autoPlay: Bool, previousTrackOverride: Track? = nil) {
         guard tracks.indices.contains(index) else { return }
         isHandlingSongEnd = false
         
-        let previousTrack = currentTrack
+        let previousTrack = previousTrackOverride ?? currentTrack
         removeTimeObserver()
         stopSpotifyProgressMonitor()
         showThankYouScreen = false
@@ -1475,11 +1439,18 @@ class PlayerController: ObservableObject {
             avPlayer = nil
             duration = track.effectiveDuration
             currentTime = 0
-            isBetweenSongs = false
-            
+
             self.spotifyAccumulatedPauseTime = 0.0
             
+            // Mirror the local-file branch below: only clear isBetweenSongs
+            // (and actually start playback) when autoPlay is true. When
+            // prepareTrack is called from handleSongEnded with autoPlay:false,
+            // isBetweenSongs must stay true until the user presses Play —
+            // otherwise the UI jumps straight to the "Now Playing" screen
+            // while Spotify hasn't started playback yet (its API has a
+            // noticeable delay), causing a flash to the wrong screen.
             if autoPlay {
+                isBetweenSongs = false
                 isPlaying = true
                 playSpotifyTrack(track)
             } else {
@@ -1514,15 +1485,18 @@ class PlayerController: ObservableObject {
         let startCMTime = CMTime(seconds: track.startTime, preferredTimescale: 600)
         avPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
         
+        let observerTrackID = track.id
         timeObserverToken = avPlayer?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            guard let self = self, let currentTrack = self.currentTrack else { return }
+            guard let self = self,
+                  let currentTrack = self.currentTrack,
+                  currentTrack.id == observerTrackID
+            else { return }
             
             let absoluteSeconds = time.seconds
             
-            // Map progress time relative to custom start windows and the active speed factor
             let relativeSeconds = max(0, (absoluteSeconds - currentTrack.startTime) * currentTrack.speedMultiplier)
             
             if !self.isDraggingSlider {
@@ -1557,7 +1531,6 @@ class PlayerController: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // Simulating the structural LUFS analysis matching your engine's algorithm
             let hashSource = abs(track.title.hashValue ^ track.artist.hashValue)
             let evaluatedLoudness = -10.0 - Double(hashSource % 140) / 10.0
             let neededCorrection = self.targetLoudnessLUFS - evaluatedLoudness
@@ -1594,8 +1567,7 @@ class PlayerController: ObservableObject {
     }
     
     func handleSongEnded() {
-        // Guard against the time observer firing multiple times inside the 0.25s
-        // end-threshold window, which would skip the first next track entirely.
+
         guard !isHandlingSongEnd else { return }
         isHandlingSongEnd = true
 
@@ -1610,13 +1582,16 @@ class PlayerController: ObservableObject {
         lastTrack = currentTrack
 
         if nextIdx < tracks.count {
-            // Set isBetweenSongs BEFORE prepareTrack so the flag is already
-            // true when the new AVPlayerItem is created; prepareTrack for a
-            // local file must not clear it until the user presses Play.
+
+            currentIndex = nextIdx
+            duration = tracks[nextIdx].effectiveDuration
+            currentTime = 0
+            isPlaying = false
             isBetweenSongs = true
+            
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self else { return }
-                self.prepareTrack(index: nextIdx, autoPlay: false)
+                self.prepareTrack(index: nextIdx, autoPlay: false, previousTrackOverride: endedTrack)
                 self.isHandlingSongEnd = false
             }
         } else {
@@ -1653,8 +1628,7 @@ class PlayerController: ObservableObject {
                 }
                 return
             } else {
-                // Local file: prepareTrack loaded it with autoPlay:false so
-                // we must seek to the start boundary and begin playback here.
+
                 if let track = currentTrack {
                     let startCMTime = CMTime(seconds: track.startTime, preferredTimescale: 600)
                     avPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -2698,10 +2672,6 @@ class PlayerController: ObservableObject {
                     in: filesFolderURL
                 )
 
-                // Guard: if the track already lives at the destination (e.g. after
-                // autosave runs on a project whose files are already materialized),
-                // skip the delete+copy — otherwise we delete the file and then
-                // immediately fail trying to copy from the path we just cleared.
                 if track.url.standardizedFileURL != destinationURL.standardizedFileURL {
                     if fileManager.fileExists(atPath: destinationURL.path) {
                         try fileManager.removeItem(at: destinationURL)
@@ -2710,8 +2680,7 @@ class PlayerController: ObservableObject {
                 }
             }
 
-            // Spotify artwork is intentionally not written to the artwork folder —
-            // it's re-downloaded fresh from Spotify on import (see persistableArtworkData).
+
             if track.source == .local, let artworkData = track.persistableArtworkData {
                 artworkFileName = "\(track.songHash).png"
                 let artworkURL = artworkFolderURL.appendingPathComponent(artworkFileName!)
@@ -2739,8 +2708,6 @@ class PlayerController: ObservableObject {
         let data = try encoder.encode(package)
         try data.write(to: projectFolderURL.appendingPathComponent("project.json"), options: .atomic)
 
-        // Write song_order.json so the import side can restore the exact
-        // playlist order (project.json key ordering is not guaranteed).
         let orderExport = ProjectPackageOrderExport(songHashes: exportedTracks.map { $0.songHash })
         let orderData = try encoder.encode(orderExport)
         try orderData.write(to: projectFolderURL.appendingPathComponent("song_order.json"), options: .atomic)
