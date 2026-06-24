@@ -111,6 +111,7 @@ struct ProjectWelcomeView: View {
                         .toggleStyle(.checkbox)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
+                        .pointingHandCursor()
 
                     Text("When enabled, your set will autosave for future use.")
                         .font(.system(size: 12))
@@ -135,6 +136,7 @@ struct ProjectWelcomeView: View {
                         )
                     }
                     .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
 
                     Button("Import Existing Project") {
                         player.beginImportProjectFlow(
@@ -143,6 +145,7 @@ struct ProjectWelcomeView: View {
                         )
                     }
                     .buttonStyle(.bordered)
+                    .pointingHandCursor()
                 }
                 .controlSize(.large)
 
@@ -234,6 +237,7 @@ struct PlaylistView: View {
                         .foregroundColor(Color(hex: "#a3a3ac"))
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
                 .popover(isPresented: $isShowingAddMenu, arrowEdge: .bottom) {
                     AddTrackMenu(
                         onSpotifyTrack: {
@@ -277,7 +281,12 @@ struct PlaylistView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
-                            PlaylistRow(index: index + 1, track: track, isPlaying: player.currentIndex == index)
+                            PlaylistRow(
+                                index: index + 1,
+                                track: track,
+                                isPlaying: player.currentIndex == index,
+                                isBeingDragged: draggedTrack?.id == track.id
+                            )
                                 .onTapGesture(count: 2) {
                                     player.play(index: index)
                                 }
@@ -319,6 +328,7 @@ struct PlaylistView: View {
                             .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     
                     // EXPORT SET TEXT BUTTON
                     Button(action: {
@@ -333,6 +343,7 @@ struct PlaylistView: View {
                             .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -439,6 +450,7 @@ struct SpotifyImportSheet: View {
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
 
             VStack(alignment: .leading, spacing: 5) {
@@ -453,6 +465,7 @@ struct SpotifyImportSheet: View {
                             .foregroundColor(Color(hex: "#a3a3ac"))
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     .help("Spotify setup help")
                     .popover(isPresented: $isShowingSetupHelp, arrowEdge: .top) {
                         SpotifySetupHelpPopover()
@@ -715,6 +728,7 @@ struct PlaylistRow: View {
     let index: Int
     let track: Track
     let isPlaying: Bool
+    var isBeingDragged: Bool = false
     @State private var isHovering = false
 
     var body: some View {
@@ -758,7 +772,9 @@ struct PlaylistRow: View {
             RoundedRectangle(cornerRadius: 5)
                 .stroke(isHovering ? Color.gray.opacity(0.2) : Color.clear, lineWidth: 1)
         )
+        .opacity(isBeingDragged ? 0.0 : 1)
         .onHover { hovering in isHovering = hovering }
+        .pointingHandCursor()
     }
 }
 
@@ -777,7 +793,8 @@ struct PlaylistDropDelegate: DropDelegate {
         guard let dragged = draggedTrack,
               dragged != targetTrack,
               let fromIndex = player.tracks.firstIndex(where: { $0.id == dragged.id }),
-              let toIndex = player.tracks.firstIndex(where: { $0.id == targetTrack.id })
+              let toIndex = player.tracks.firstIndex(where: { $0.id == targetTrack.id }),
+              fromIndex != toIndex
         else { return }
 
         // Core array modification handling matching your layout changes
@@ -789,8 +806,8 @@ struct PlaylistDropDelegate: DropDelegate {
             if let idx = oldCurrentIndex, player.tracks.indices.contains(idx) {
                 currentTrackRef = player.tracks[idx]
             }
-            
-            player.tracks.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+            let destination = toIndex > fromIndex ? toIndex + 1 : toIndex
+            player.tracks.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: destination)
             
             if let ref = currentTrackRef {
                 player.currentIndex = player.tracks.firstIndex(where: { $0.id == ref.id })
@@ -913,6 +930,7 @@ struct TrackRow: View {
                 .cornerRadius(4)
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .frame(maxWidth: .infinity)
             .popover(isPresented: $isShowingPicker, arrowEdge: .trailing) {
                 DanceStyleMultiSelectorPopover(player: player, trackIndex: index)
@@ -942,6 +960,7 @@ struct TrackRow: View {
         .onTapGesture(count: 2) {
             player.play(index: index)
         }
+        .pointingHandCursor()
     }
 
     func formatDuration(_ t: TimeInterval) -> String {
@@ -1140,6 +1159,7 @@ struct MetadataEditorPanel: View {
                         }
                             .font(.system(size: 9))
                             .buttonStyle(.plain)
+                            .pointingHandCursor()
                         Spacer()
                         Text("Faster")
                             .font(.system(size: 9))
@@ -1290,6 +1310,7 @@ struct DanceStyleMultiSelectorPopover: View {
                             .foregroundColor(.gray)
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                 }
             }
             .padding(.horizontal, 8)
@@ -1325,6 +1346,7 @@ struct DanceStyleMultiSelectorPopover: View {
                             .onTapGesture {
                                 toggleStyleSelection(style)
                             }
+                            .pointingHandCursor()
                         }
                     }
                 }
@@ -1400,6 +1422,7 @@ struct PlaybackStatusBar: View {
                 .onTapGesture {
                     player.importArtworkForCurrentTrack()
                 }
+                .pointingHandCursor()
 
                 VStack(alignment: .leading, spacing: 2) {
                     if let last = player.lastTrack {
@@ -1515,22 +1538,13 @@ struct TransportControls: View {
 }
 
 // MARK: - Native Helpers
+
 extension Text {
     func tableHeader() -> some View {
         self.font(.system(size: 10, weight: .bold)).foregroundColor(Color(hex: "#434348"))
     }
 }
 
-/// Scrolls its content horizontally in a slow, continuous loop when the
-/// content is wider than the space available, instead of letting it get
-/// truncated with an ellipsis. Content that already fits is shown as-is.
-///
-/// IMPORTANT: the footprint this view reports to its parent is always just
-/// the single, normal (non-fixed-size) copy of `content()` — identical to a
-/// plain Text — so it never asks for extra room and never resizes the
-/// window/pane. The wider, scrolling copy used while animating is drawn in
-/// an `.overlay()`, which never affects the size of the view it's attached
-/// to, then clipped to the original footprint.
 struct ScrollingMarquee<Content: View>: View {
     @ViewBuilder var content: () -> Content
     /// Scroll speed in points per second. Lower = slower.
@@ -1551,8 +1565,6 @@ struct ScrollingMarquee<Content: View>: View {
     var body: some View {
         content()
             .lineLimit(1)
-            // Hide the static (would-be-truncated) copy while scrolling, but
-            // keep it in the tree so the view's size never changes.
             .opacity(needsScroll ? 0 : 1)
             .background(
                 GeometryReader { geo in
@@ -1599,9 +1611,6 @@ struct ScrollingMarquee<Content: View>: View {
     }
 }
 
-/// Convenience wrapper for the common case of scrolling a single piece of text.
-/// Pass `resetKey` (defaults to the text itself) if you want the scroll to
-/// restart cleanly whenever the underlying value changes, e.g. on track change.
 struct MarqueeText: View {
     let text: String
     var font: Font
@@ -1628,9 +1637,7 @@ struct TransportButtonStyle: ButtonStyle {
             .frame(width: primary ? 28 : 22, height: 22)
             .background(primary ? Color(hex: "#27272a") : Color.clear)
             .cornerRadius(4)
-            .onHover { hovering in
-                hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
-            }
+            .pointingHandCursor()
     }
 }
 
@@ -1644,9 +1651,7 @@ struct DisplayWindowButtonStyle: ButtonStyle {
             .background(Color(hex: "#1c1c22"))
             .cornerRadius(5)
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color(hex: "#2e2e38"), lineWidth: 1))
-            .onHover { hovering in
-                hovering ? NSCursor.pointingHand.push() : NSCursor.pop()
-            }
+            .pointingHandCursor()
     }
 }
 

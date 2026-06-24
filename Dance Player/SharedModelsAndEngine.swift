@@ -13,6 +13,7 @@ import AVFoundation
 import CryptoKit
 import Network
 import Security
+import MediaPlayer
 
 
 // MARK: - Global Preset Data
@@ -60,8 +61,12 @@ struct Track: Identifiable, Equatable {
     }
     
     var formattedStylesDisplay: String {
+        let isJam = danceStyles.contains("Jam")
+        let isWithStranger = danceStyles.contains("Dance with a Stranger")
+
         var items: [String] = []
         for style in predefinedDanceStyles {
+            guard style != "Jam", style != "Dance with a Stranger" else { continue }
             if danceStyles.contains(style) {
                 if style == "Other" && !customStyle.isEmpty {
                     items.append(customStyle)
@@ -70,7 +75,18 @@ struct Track: Identifiable, Equatable {
                 }
             }
         }
-        return items.isEmpty ? "—" : items.joined(separator: ", ")
+
+        var result = items.joined(separator: " or ")
+
+        if isWithStranger {
+            result = result.isEmpty ? "Dance with a Stranger" : "\(result) with a Stranger"
+        }
+
+        if isJam {
+            result = result.isEmpty ? "Jam" : "Jam (\(result))"
+        }
+
+        return result.isEmpty ? "—" : result
     }
 }
 
@@ -822,7 +838,6 @@ final class SpotifyService {
         let request = try await authorizedRequest(url, clientID: clientID)
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        // Check for Spotify Rate Limiting (HTTP 429)
         if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
             let finalSleepTime = 30.0
         }
@@ -1064,8 +1079,16 @@ class PlayerController: ObservableObject {
     @Published var hasLoadedProject = false
     @Published var showThankYouScreen = false
 
-    @Published var currentIndex: Int? = nil
-    @Published var isPlaying = false
+    @Published var currentIndex: Int? = nil {
+        didSet {
+            updateNowPlayingInfo()
+        }
+    }
+    @Published var isPlaying = false {
+        didSet {
+            updateNowPlayingInfo()
+        }
+    }
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
     @Published var targetLoudnessLUFS: Double = -16.0
@@ -1096,12 +1119,116 @@ class PlayerController: ObservableObject {
     private var isHandlingSongEnd = false
     private var displayWindowController: NSWindowController?
     private let spotifyService = SpotifyService()
+    private var spacebarKeyMonitor: Any?
     
     var isDraggingSlider = false
 
     var currentTrack: Track? {
         guard let idx = currentIndex, tracks.indices.contains(idx) else { return nil }
         return tracks[idx]
+    }
+
+    init() {
+        setupRemoteCommandCenter()
+        setupSpacebarKeyMonitor()
+    }
+
+    // MARK: - Media Key / Keyboard Shortcuts (F7 / F8 / F9 + Spacebar)
+
+    /// Routes hardware media keys (F7/F8/F9, Touch Bar, Control Center "Now Playing") to playback controls.
+    ///
+    private func setupRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
+
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
+
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
+
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            self?.next()
+            return .success
+        }
+
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            self?.previous()
+            return .success
+        }
+    }
+
+    private func teardownRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.togglePlayPauseCommand.removeTarget(nil)
+        commandCenter.playCommand.removeTarget(nil)
+        commandCenter.pauseCommand.removeTarget(nil)
+        commandCenter.nextTrackCommand.removeTarget(nil)
+        commandCenter.previousTrackCommand.removeTarget(nil)
+    }
+
+    private func updateNowPlayingInfo() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyArtist: track.artist,
+            MPMediaItemPropertyPlaybackDuration: track.effectiveDuration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? track.speedMultiplier : 0.0
+        ]
+
+        if let artwork = track.artwork {
+            let mediaArtwork = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
+            info[MPMediaItemPropertyArtwork] = mediaArtwork
+        }
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Spacebar toggles play/pause, EXCEPT while the user is typing in any text field
+
+    private func setupSpacebarKeyMonitor() {
+        spacebarKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+
+            // keyCode 49 == spacebar
+            guard event.keyCode == 49 else { return event }
+
+            if self.isCurrentlyEditingText() {
+                return event // let the text field handle it normally
+            }
+
+            self.togglePlayPause()
+            return nil // swallow so it doesn't also trigger button focus / scroll, etc.
+        }
+    }
+
+    private func isCurrentlyEditingText() -> Bool {
+        guard let window = NSApp.keyWindow,
+              let responder = window.firstResponder else { return false }
+
+        // NSTextView backs both NSTextField editing sessions and SwiftUI's
+        // TextField/TextEditor while they're focused.
+        if responder is NSTextView { return true }
+
+        return false
     }
 
     private var safeProjectName: String {
@@ -1337,6 +1464,10 @@ class PlayerController: ObservableObject {
         removeTimeObserver()
         spotifyProgressTask?.cancel()
         projectAutosaveTask?.cancel()
+        if let spacebarKeyMonitor {
+            NSEvent.removeMonitor(spacebarKeyMonitor)
+        }
+        teardownRemoteCommandCenter()
     }
     
     private func loadLibrary() -> DancePlayerLibrary {
@@ -1677,7 +1808,6 @@ class PlayerController: ObservableObject {
     
     func next() {
         if let idx = currentIndex, idx + 1 < tracks.count {
-            lastTrack = currentTrack
             play(index: idx + 1)
         }
     }
@@ -2285,12 +2415,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Records the auto-detected trailing-silence boundary as `endTime` metadata rather
-    /// than physically re-encoding and replacing the imported audio file. This keeps the
-    /// original file on disk untouched — so clearing the trim (e.g. setting endTime back
-    /// to the full duration) plays the complete untrimmed audio — and the trim is restored
-    /// on relaunch the same way as any other persisted setting, by re-applying this
-    /// metadata to the track matched by its songHash.
+    /// Records the auto-detected trailing-silence boundary as `endTime` metadata
     private func applyDetectedTrailingSilenceTrim(endTrimTime: TimeInterval, trackIndex: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.tracks.indices.contains(trackIndex) else { return }
@@ -2797,8 +2922,6 @@ class PlayerController: ObservableObject {
     }
 
     /// Loads the optional song_order.json and returns the ordered song hashes.
-    /// Falls back to the order embedded in project.json if the file is absent
-    /// (backwards-compatible with packages saved before this fix).
     private func loadSongOrder(from projectFolderURL: URL, fallbackTracks: [ProjectPackageTrack]) -> [String] {
         let orderURL = projectFolderURL.appendingPathComponent("song_order.json")
         if let data = try? Data(contentsOf: orderURL),
@@ -2908,10 +3031,7 @@ class PlayerController: ObservableObject {
         writeLibrary(library)
     }
 
-    /// Default starting location for folder-picker panels. Without this, NSOpenPanel
-    /// silently remembers whatever directory was last used (even across launches),
-    /// which is why panels appeared to "remember" the previous session and Save As
-    /// kept landing back in the original project's folder. Always start at Desktop.
+    /// Default starting location for folder-picker panels
     private var defaultPanelDirectoryURL: URL? {
         FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
     }
@@ -3092,5 +3212,23 @@ extension Color {
         let g = Double((int >> 8) & 0xFF) / 255
         let b = Double(int & 0xFF) / 255
         self.init(red: r, green: g, blue: b)
+    }
+}
+
+struct PointingHandCursorModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
+extension View {
+    func pointingHandCursor() -> some View {
+        modifier(PointingHandCursorModifier())
     }
 }

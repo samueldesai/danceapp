@@ -125,6 +125,7 @@ struct PublicDisplayWindowView: View {
                                             .clipShape(Circle())
                                     }
                                     .buttonStyle(.plain)
+                                    .pointingHandCursor()
                                 }
                                 .padding(.bottom, 20)
                                 
@@ -379,6 +380,7 @@ struct PublicDisplayWindowView: View {
                                     .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .pointingHandCursor()
                         }
                         .padding(.horizontal, 80)
                         .padding(.bottom, 30)
