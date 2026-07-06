@@ -18,7 +18,7 @@ import MediaPlayer
 
 // MARK: - Global Preset Data
 let predefinedDanceStyles = [
-    "Cross-Step Waltz", "Rotary Waltz", "Lindy Hop", "West Coast Swing", "Fast Waltz", "Accelerating Waltz", "Mazurka", "Redowa", "Polka", "Schottische", "One-Step", "Valse Asymétrique", "4-Count Swing", "Foxtrot", "Shag", "Balboa", "Charleston", "Night Club Two Step", "Fusion", "Hustle", "Bachata", "Cha-Cha", "Salsa", "Tango", "Merengue", "Tokyo Polka", "Barbie Line Dance", "Shivers Line Dance", "Solo Jazz", "Bohemian National Polka", "Romany Polka", "Dawn Mazurka", "Mixer", "Jam", "Dance with a Stranger", "Last West Coast Swing", "Last Lindy Hop", "Last Cross-Step Waltz", "Last Rotary Waltz", "Other",
+    "Cross-Step Waltz", "Rotary Waltz", "Fast Waltz", "Lindy Hop", "West Coast Swing", "Fusion", "Polka", "Accelerating Waltz", "4-Count Swing", "Night Club Two Step", "Bachata", "Cha-Cha", "Salsa", "Tango", "Tokyo Polka", "Barbie Line Dance", "Shivers Line Dance", "Bohemian National Polka", "Romany Polka", "Dawn Mazurka", "Cross-Step Waltz Mixer", "'T Smidje Mixer", "Jam", "Dance with a Stranger", "Last West Coast Swing", "Last Lindy Hop", "Last Cross-Step Waltz", "Last Rotary Waltz", "Other",
 ]
 
 // MARK: - Models
@@ -426,7 +426,14 @@ struct PopularEdit: Identifiable, CaseIterable {
             resourceName: "Tokyo Polka - Hatsune Miku",
             fileExtension: "mp3",
             danceStyles: ["Tokyo Polka"]
-        ),//TODO add T'Smidje Mixer
+        ),
+        PopularEdit(
+            id: "'t-smidje-mixer",
+            displayName: "'T Smidje Mixer",
+            resourceName: "TSmidje_Edit",
+            fileExtension: "mp3",
+            danceStyles: ["'T Smidje Mixer"]
+        )
     ]
 }
 
@@ -1136,7 +1143,7 @@ class PlayerController: ObservableObject {
     // MARK: - Media Key / Keyboard Shortcuts (F7 / F8 / F9 + Spacebar)
 
     /// Routes hardware media keys (F7/F8/F9, Touch Bar, Control Center "Now Playing") to playback controls.
-    ///
+
     private func setupRemoteCommandCenter() {
         let commandCenter = MPRemoteCommandCenter.shared()
 
@@ -1573,13 +1580,6 @@ class PlayerController: ObservableObject {
 
             self.spotifyAccumulatedPauseTime = 0.0
             
-            // Mirror the local-file branch below: only clear isBetweenSongs
-            // (and actually start playback) when autoPlay is true. When
-            // prepareTrack is called from handleSongEnded with autoPlay:false,
-            // isBetweenSongs must stay true until the user presses Play —
-            // otherwise the UI jumps straight to the "Now Playing" screen
-            // while Spotify hasn't started playback yet (its API has a
-            // noticeable delay), causing a flash to the wrong screen.
             if autoPlay {
                 isBetweenSongs = false
                 isPlaying = true
@@ -1666,7 +1666,6 @@ class PlayerController: ObservableObject {
             let evaluatedLoudness = -10.0 - Double(hashSource % 140) / 10.0
             let neededCorrection = self.targetLoudnessLUFS - evaluatedLoudness
             
-            // Brief sleep to yield thread safety back to core hardware tasks
             Thread.sleep(forTimeInterval: 0.05)
             
             DispatchQueue.main.async {
@@ -1687,7 +1686,6 @@ class PlayerController: ObservableObject {
                     self.avPlayer?.currentItem?.audioMix = mix
                 }
                 
-                // Auto-commit properties directly to app storage cache
                 self.saveTrack(self.tracks[index])
             }
         }

@@ -1552,7 +1552,7 @@ struct ScrollingMarquee<Content: View>: View {
     /// Gap between the end of one pass and the start of the next.
     var gap: CGFloat = 48
     /// How long to pause (fully visible at the start) before each pass.
-    var pauseDuration: Double = 1.5
+    var pauseDuration: Double = 3
 
     @State private var contentWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
