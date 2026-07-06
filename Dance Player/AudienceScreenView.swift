@@ -105,6 +105,9 @@ struct PublicDisplayWindowView: View {
                                         Text(player.currentTrack?.title ?? "Unknown Title")
                                             .font(.system(size: 32, weight: .bold))
                                             .foregroundColor(.white)
+                                            .lineLimit(2)
+                                            .minimumScaleFactor(0.6)
+                                            .multilineTextAlignment(.center)
                                         Text(player.currentTrack?.artist ?? "Unknown Artist")
                                             .font(.system(size: 20, weight: .medium))
                                             .foregroundColor(Color(hex: "#a1a1aa"))
@@ -206,6 +209,8 @@ struct PublicDisplayWindowView: View {
                                 .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(.white)
                                 .lineLimit(2)
+                                .minimumScaleFactor(0.5)
+                                .truncationMode(.tail)
                                 .padding(.bottom, 12)
                         
                             
