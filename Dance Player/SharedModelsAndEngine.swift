@@ -15,6 +15,12 @@ import Network
 import Security
 import MediaPlayer
 
+enum HapticFeedback {
+    static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+    }
+}
+
 
 // MARK: - Global Preset Data
 let predefinedDanceStyles = [
@@ -1109,6 +1115,8 @@ class PlayerController: ObservableObject {
     @Published var isSpotifyImporting = false
     @Published var isSpotifySearching = false
     @Published var spotifySearchResults: [Track] = []
+    @Published var importStatusMessage: String? = nil
+    @Published var activeImportOperations: Int = 0
     @Published var tracks: [Track] = [] {
         didSet {
             // Forces a refresh sync down to all observing views when the collection shifts
@@ -1135,9 +1143,27 @@ class PlayerController: ObservableObject {
         return tracks[idx]
     }
 
+    var isImportingContent: Bool {
+        activeImportOperations > 0 || isSpotifyImporting || isBatchProcessingLoudness
+    }
+
     init() {
         setupRemoteCommandCenter()
         setupSpacebarKeyMonitor()
+    }
+
+    func beginImportActivity(message: String? = nil) {
+        activeImportOperations += 1
+        if let message {
+            importStatusMessage = message
+        }
+    }
+
+    func finishImportActivity() {
+        activeImportOperations = max(0, activeImportOperations - 1)
+        if activeImportOperations == 0, !isSpotifyImporting {
+            importStatusMessage = nil
+        }
     }
 
     // MARK: - Media Key / Keyboard Shortcuts (F7 / F8 / F9 + Spacebar)
@@ -1597,7 +1623,7 @@ class PlayerController: ObservableObject {
         let playerItem = AVPlayerItem(url: track.url)
         
         // Preserves vocal & instrumental pitch perfectly when scaling playback rate
-        playerItem.audioTimePitchAlgorithm = .timeDomain
+        playerItem.audioTimePitchAlgorithm = .spectral
         
         let linearVolume = pow(10.0, Float(track.gainCorrectiondB) / 20.0)
         let mix = AVMutableAudioMix()
@@ -1848,6 +1874,29 @@ class PlayerController: ObservableObject {
             avPlayer?.rate = Float(track.speedMultiplier)
         }
     }
+
+    func reorderTrack(from draggedTrackID: UUID, before targetTrackID: UUID) -> Bool {
+        guard draggedTrackID != targetTrackID,
+              let fromIndex = tracks.firstIndex(where: { $0.id == draggedTrackID }),
+              let toIndex = tracks.firstIndex(where: { $0.id == targetTrackID }) else {
+            return false
+        }
+
+        let currentTrackID = currentIndex.flatMap { idx -> UUID? in
+            guard tracks.indices.contains(idx) else { return nil }
+            return tracks[idx].id
+        }
+
+        let destination = toIndex > fromIndex ? toIndex + 1 : toIndex
+        tracks.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: destination)
+
+        if let currentTrackID {
+            currentIndex = tracks.firstIndex(where: { $0.id == currentTrackID })
+        }
+
+        HapticFeedback.perform(.alignment)
+        return true
+    }
     
     func removeTrack(at index: Int) {
         guard tracks.indices.contains(index) else { return }
@@ -1925,9 +1974,15 @@ class PlayerController: ObservableObject {
     func importSpotify(input: String, kind: SpotifyImportKind, clientID: String) {
         isSpotifyImporting = true
         spotifyStatusMessage = nil
+        beginImportActivity(message: kind == .playlist ? "Importing Spotify playlist..." : "Importing Spotify track...")
 
         Task { [weak self] in
             guard let self else { return }
+            defer {
+                Task { @MainActor in
+                    self.finishImportActivity()
+                }
+            }
 
             do {
                 try await self.spotifyService.connect(clientID: clientID)
@@ -2206,8 +2261,15 @@ class PlayerController: ObservableObject {
     ) {
         let accessSecure = url.startAccessingSecurityScopedResource()
         let asset = AVURLAsset(url: url)
+        beginImportActivity(message: "Importing audio files...")
 
         Task {
+            defer {
+                Task { @MainActor in
+                    self.finishImportActivity()
+                }
+            }
+
             var title = url.deletingPathExtension().lastPathComponent
             var artist = "Unknown Artist"
             var danceStyleParsed = ""
@@ -2315,25 +2377,29 @@ class PlayerController: ObservableObject {
                     artwork: artwork
                 )
 
-                // FIX 1: Append EXACTLY ONCE
-                self.tracks.append(newTrack)
-                self.showThankYouScreen = false
-                let trackIndex = self.tracks.count - 1
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
 
-                if self.currentIndex == nil {
-                    self.prepareTrack(index: 0, autoPlay: false)
+                    // FIX 1: Append EXACTLY ONCE
+                    self.tracks.append(newTrack)
+                    self.showThankYouScreen = false
+                    let trackIndex = self.tracks.count - 1
+
+                    if self.currentIndex == nil {
+                        self.prepareTrack(index: 0, autoPlay: false)
+                    }
+
+                    if runReplayGainOnAdd {
+                        self.calculateLoudness(forTrackAt: trackIndex)
+                    }
+
+                    // FIX 2: Trigger the background trailing silence trimmer.
+                    // Security scope is released inside trimTrailingSilence after
+                    // the async work completes so the file stays accessible during
+                    // the background scan and export.
+                    print("Starting trailing silence trim analysis for: \(title)")
+                    self.trimTrailingSilence(forTrackAt: trackIndex, releaseSecurityScope: accessSecure ? url : nil)
                 }
-
-                if runReplayGainOnAdd {
-                    self.calculateLoudness(forTrackAt: trackIndex)
-                }
-
-                // FIX 2: Trigger the background trailing silence trimmer.
-                // Security scope is released inside trimTrailingSilence after
-                // the async work completes so the file stays accessible during
-                // the background scan and export.
-                print("Starting trailing silence trim analysis for: \(title)")
-                self.trimTrailingSilence(forTrackAt: trackIndex, releaseSecurityScope: accessSecure ? url : nil)
             }
         }
     }
@@ -2588,6 +2654,14 @@ class PlayerController: ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
+            await MainActor.run {
+                self.beginImportActivity(message: "Importing project package...")
+            }
+            defer {
+                Task { @MainActor in
+                    self.finishImportActivity()
+                }
+            }
             await self.importProjectPackage(
                 from: projectFolderURL,
                 clearExistingTracks: shouldClearExistingTracks

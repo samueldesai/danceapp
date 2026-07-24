@@ -42,10 +42,34 @@ struct ContentView: View {
             } else {
                 ProjectWelcomeView(player: player)
             }
+
+            if player.isImportingContent {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.large)
+
+                    Text(player.importStatusMessage ?? "Importing media...")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 18)
+                .background(Color(hex: "#111114").opacity(0.96))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color(hex: "#2f2f38"), lineWidth: 1)
+                )
+                .cornerRadius(12)
+                .shadow(color: .black.opacity(0.35), radius: 20, x: 0, y: 8)
+            }
         }
         .background(Color(hex: "#0e0e10"))
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: player.selectedTrackForEditing)
+        .animation(.easeInOut(duration: 0.15), value: player.isImportingContent)
         .navigationTitle(player.projectName)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .inactive || newPhase == .background {
@@ -213,6 +237,8 @@ struct AppLogoView: View {
 struct PlaylistView: View {
     @ObservedObject var player: PlayerController
     @State private var draggedTrack: Track? = nil
+    @State private var dropTargetTrackID: UUID? = nil
+    @State private var lastDropHapticTrackID: UUID? = nil
     
     @State private var isShowingAddMenu = false
     @State private var isShowingSpotifyImporter = false
@@ -285,7 +311,8 @@ struct PlaylistView: View {
                                 index: index + 1,
                                 track: track,
                                 isPlaying: player.currentIndex == index,
-                                isBeingDragged: draggedTrack?.id == track.id
+                                isBeingDragged: draggedTrack?.id == track.id,
+                                isDropTarget: dropTargetTrackID == track.id
                             )
                                 .onTapGesture(count: 2) {
                                     player.play(index: index)
@@ -295,17 +322,27 @@ struct PlaylistView: View {
                                 }
                                 .onDrag {
                                     self.draggedTrack = track
+                                    self.dropTargetTrackID = nil
+                                    self.lastDropHapticTrackID = nil
                                     return NSItemProvider(object: track.id.uuidString as NSString)
                                 }
                                 .onDrop(of: [.text], delegate: PlaylistDropDelegate(
                                     targetTrack: track,
                                     player: player,
-                                    draggedTrack: $draggedTrack
+                                    draggedTrack: $draggedTrack,
+                                    dropTargetTrackID: $dropTargetTrackID,
+                                    lastDropHapticTrackID: $lastDropHapticTrackID
                                 ))
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
+                }
+                .onChange(of: draggedTrack?.id) { _, newValue in
+                    if newValue == nil {
+                        dropTargetTrackID = nil
+                        lastDropHapticTrackID = nil
+                    }
                 }
             }
             
@@ -729,6 +766,7 @@ struct PlaylistRow: View {
     let track: Track
     let isPlaying: Bool
     var isBeingDragged: Bool = false
+    var isDropTarget: Bool = false
     @State private var isHovering = false
 
     var body: some View {
@@ -766,13 +804,14 @@ struct PlaylistRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .background(isPlaying ? Color(hex: "#142844") : Color(hex: "#131316"))
+        .background(isDropTarget ? Color(hex: "#1c2f52") : (isPlaying ? Color(hex: "#142844") : Color(hex: "#131316")))
         .cornerRadius(5)
         .overlay(
             RoundedRectangle(cornerRadius: 5)
-                .stroke(isHovering ? Color.gray.opacity(0.2) : Color.clear, lineWidth: 1)
+                .stroke(isDropTarget ? Color(hex: "#60a5fa") : (isHovering ? Color.gray.opacity(0.2) : Color.clear), lineWidth: 1)
         )
-        .opacity(isBeingDragged ? 0.0 : 1)
+        .opacity(isBeingDragged ? 0.35 : 1)
+        .animation(.easeOut(duration: 0.12), value: isDropTarget)
         .onHover { hovering in isHovering = hovering }
         .pointingHandCursor()
     }
@@ -783,36 +822,40 @@ struct PlaylistDropDelegate: DropDelegate {
     let targetTrack: Track
     let player: PlayerController
     @Binding var draggedTrack: Track?
+    @Binding var dropTargetTrackID: UUID?
+    @Binding var lastDropHapticTrackID: UUID?
 
     func performDrop(info: DropInfo) -> Bool {
-        self.draggedTrack = nil
-        return true
+        defer {
+            self.draggedTrack = nil
+            self.dropTargetTrackID = nil
+            self.lastDropHapticTrackID = nil
+        }
+
+        guard let dragged = draggedTrack else { return false }
+        return player.reorderTrack(from: dragged.id, before: targetTrack.id)
     }
 
     func dropEntered(info: DropInfo) {
-        guard let dragged = draggedTrack,
-              dragged != targetTrack,
-              let fromIndex = player.tracks.firstIndex(where: { $0.id == dragged.id }),
-              let toIndex = player.tracks.firstIndex(where: { $0.id == targetTrack.id }),
-              fromIndex != toIndex
-        else { return }
-
-        // Core array modification handling matching your layout changes
-        withAnimation(.linear(duration: 0.15)) {
-            player.objectWillChange.send()
-            
-            let oldCurrentIndex = player.currentIndex
-            var currentTrackRef: Track? = nil
-            if let idx = oldCurrentIndex, player.tracks.indices.contains(idx) {
-                currentTrackRef = player.tracks[idx]
-            }
-            let destination = toIndex > fromIndex ? toIndex + 1 : toIndex
-            player.tracks.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: destination)
-            
-            if let ref = currentTrackRef {
-                player.currentIndex = player.tracks.firstIndex(where: { $0.id == ref.id })
+        guard draggedTrack != nil else { return }
+        if dropTargetTrackID != targetTrack.id {
+            dropTargetTrackID = targetTrack.id
+            if lastDropHapticTrackID != targetTrack.id {
+                HapticFeedback.perform(.alignment)
+                lastDropHapticTrackID = targetTrack.id
             }
         }
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetTrackID == targetTrack.id {
+            dropTargetTrackID = nil
+            lastDropHapticTrackID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 
@@ -881,23 +924,44 @@ struct TrackRow: View {
         GridRow {
             // Column 1: Core Track Titles & Timings
             HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        if isPlaying {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.white)
+                HStack(alignment: .center, spacing: 10) {
+                    Group {
+                        if let artwork = track.artwork {
+                            Image(nsImage: artwork)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color(hex: "#18181b"))
+                                .overlay(
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.gray)
+                                )
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipped()
+                    .cornerRadius(4)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 10) {
+                            if isPlaying {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.white)
+                            }
+
+                            Text(track.title)
+                                .font(.system(size: 15, weight: isPlaying ? .semibold : .regular))
+                                .lineLimit(1)
                         }
 
-                        Text(track.title)
-                            .font(.system(size: 15, weight: isPlaying ? .semibold : .regular))
+                        Text(track.artist)
+                            .font(.system(size: 15))
+                            .foregroundColor(isPlaying ? .white : Color(hex: "#71717a"))
                             .lineLimit(1)
                     }
-
-                    Text(track.artist)
-                        .font(.system(size: 15))
-                        .foregroundColor(isPlaying ? .white : Color(hex: "#71717a"))
-                        .lineLimit(1)
                 }
                 
                 Spacer(minLength: 16)
@@ -1145,7 +1209,16 @@ struct MetadataEditorPanel: View {
                         }
                     }
                     
-                    TicklessSlider(value: $tempoPercentage, range: -25...25, step: 0.5)
+                        TicklessSlider(
+                            value: $tempoPercentage,
+                            range: -25...25,
+                            step: 0.5,
+                            onEditingChanged: { isEditing in
+                                if !isEditing {
+                                    HapticFeedback.perform(.levelChange)
+                                }
+                            }
+                        )
                         .accentColor(.blue)
                     
                     HStack {
@@ -1156,6 +1229,7 @@ struct MetadataEditorPanel: View {
                         Button("Reset") {
                             tempoPercentage = 0.0
                             customTempoOverride = nil
+                            HapticFeedback.perform(.levelChange)
                         }
                             .font(.system(size: 9))
                             .buttonStyle(.plain)
@@ -1196,6 +1270,7 @@ struct MetadataEditorPanel: View {
         }
         isEditingTempoText = false
         tempoTextInput = ""
+        HapticFeedback.perform(.levelChange)
     }
     
     private func hydrateFormFields() {
@@ -1460,6 +1535,7 @@ struct PlaybackStatusBar: View {
             ), in: 0...max(1, player.duration), onEditingChanged: { dragging in
                 player.isDraggingSlider = dragging
                 if !dragging {
+                    HapticFeedback.perform(.levelChange)
                     player.seek(to: player.currentTime)
                 }
             })
@@ -1660,22 +1736,25 @@ struct TicklessSlider: NSViewRepresentable {
     var range: ClosedRange<Double>
     var step: Double
     var accentColor: NSColor = .systemBlue
+    var onEditingChanged: ((Bool) -> Void)? = nil
 
-    func makeNSView(context: Context) -> NSSlider {
-        let slider = NSSlider(value: value,
-                              minValue: range.lowerBound,
-                              maxValue: range.upperBound,
-                              target: context.coordinator,
-                              action: #selector(Coordinator.valueChanged(_:)))
+    func makeNSView(context: Context) -> TrackingSlider {
+        let slider = TrackingSlider(value: value,
+                                    minValue: range.lowerBound,
+                                    maxValue: range.upperBound,
+                                    target: context.coordinator,
+                                    action: #selector(Coordinator.valueChanged(_:)))
         slider.numberOfTickMarks = 0
         slider.allowsTickMarkValuesOnly = false
         slider.isContinuous = true
+        slider.onEditingChanged = onEditingChanged
         return slider
     }
 
-    func updateNSView(_ nsView: NSSlider, context: Context) {
+    func updateNSView(_ nsView: TrackingSlider, context: Context) {
         nsView.doubleValue = value
         nsView.numberOfTickMarks = 0
+        nsView.onEditingChanged = onEditingChanged
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1685,6 +1764,7 @@ struct TicklessSlider: NSViewRepresentable {
     class Coordinator: NSObject {
         var value: Binding<Double>
         var step: Double
+        private var lastHapticValue: Double?
 
         init(value: Binding<Double>, step: Double) {
             self.value = value
@@ -1693,8 +1773,23 @@ struct TicklessSlider: NSViewRepresentable {
 
         @objc func valueChanged(_ sender: NSSlider) {
             let snapped = (sender.doubleValue / step).rounded() * step
-            value.wrappedValue = snapped
+            if value.wrappedValue != snapped {
+                value.wrappedValue = snapped
+            }
+            if lastHapticValue != snapped {
+                HapticFeedback.perform(.levelChange)
+                lastHapticValue = snapped
+            }
+        }
+    }
+
+    final class TrackingSlider: NSSlider {
+        var onEditingChanged: ((Bool) -> Void)?
+
+        override func mouseDown(with event: NSEvent) {
+            onEditingChanged?(true)
+            super.mouseDown(with: event)
+            onEditingChanged?(false)
         }
     }
 }
-
