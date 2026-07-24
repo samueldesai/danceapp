@@ -48,12 +48,25 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 12) {
-                    ProgressView()
-                        .controlSize(.large)
+                    if player.importProgressFraction != nil {
+                        ProgressView(value: Double(player.importCompletedCount), total: Double(player.importTotalCount))
+                            .controlSize(.large)
+                    } else {
+                        ProgressView()
+                            .controlSize(.large)
+                    }
 
-                    Text(player.importStatusMessage ?? "Importing media...")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
+                    VStack(spacing: 4) {
+                        Text(player.importStatusMessage ?? "Importing media...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+
+                        if let progressText = player.importProgressSummary {
+                            Text(progressText)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Color(hex: "#a3a3ac"))
+                        }
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
@@ -308,17 +321,17 @@ struct PlaylistView: View {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
                             PlaylistRow(
-                                index: index + 1,
+                                displayIndex: player.queueNumber(for: track.id),
                                 track: track,
                                 isPlaying: player.currentIndex == index,
+                                isImporting: player.isImportingContent,
                                 isBeingDragged: draggedTrack?.id == track.id,
-                                isDropTarget: dropTargetTrackID == track.id
+                                isDropTarget: dropTargetTrackID == track.id,
+                                onDelete: { player.removeTrack(at: index) },
+                                onToggleSkip: { player.toggleSkipTrack(at: index) }
                             )
                                 .onTapGesture(count: 2) {
                                     player.play(index: index)
-                                }
-                                .contextMenu {
-                                    Button("Delete Track") { player.removeTrack(at: index) }
                                 }
                                 .onDrag {
                                     self.draggedTrack = track
@@ -762,30 +775,49 @@ struct SpotifySetupHelpPopover: View {
 }
 
 struct PlaylistRow: View {
-    let index: Int
+    let displayIndex: Int?
     let track: Track
     let isPlaying: Bool
+    let isImporting: Bool
     var isBeingDragged: Bool = false
     var isDropTarget: Bool = false
+    let onDelete: () -> Void
+    let onToggleSkip: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 6) {
-            if isPlaying {
+            if track.isSkipped {
+                Text("Skipped")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Color(hex: "#6b6b75"))
+                    .frame(width: 32, alignment: .leading)
+            } else if isPlaying {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#3478f6"))
                     .frame(width: 16)
             } else {
-                Text("\(index).")
+                Text("\(displayIndex ?? 0).")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(Color(hex: "#44444a"))
                     .frame(width: 16, alignment: .leading)
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                MarqueeText(text: track.title, font: .system(size: 11, weight: isPlaying ? .bold : .medium), color: isPlaying ? .white : Color(hex: "#a3a3ac"))
-                MarqueeText(text: track.artist, font: .system(size: 9), color: Color(hex: "#6b6b75"))
+                if isImporting {
+                    Text(track.title)
+                        .font(.system(size: 11, weight: isPlaying ? .bold : .medium))
+                        .foregroundColor(isPlaying ? .white : Color(hex: "#a3a3ac"))
+                        .lineLimit(1)
+                    Text(track.artist)
+                        .font(.system(size: 9))
+                        .foregroundColor(Color(hex: "#6b6b75"))
+                        .lineLimit(1)
+                } else {
+                    MarqueeText(text: track.title, font: .system(size: 11, weight: isPlaying ? .bold : .medium), color: isPlaying ? .white : Color(hex: "#a3a3ac"))
+                    MarqueeText(text: track.artist, font: .system(size: 9), color: Color(hex: "#6b6b75"))
+                }
             }
             
             Spacer()
@@ -810,9 +842,14 @@ struct PlaylistRow: View {
             RoundedRectangle(cornerRadius: 5)
                 .stroke(isDropTarget ? Color(hex: "#60a5fa") : (isHovering ? Color.gray.opacity(0.2) : Color.clear), lineWidth: 1)
         )
-        .opacity(isBeingDragged ? 0.35 : 1)
+        .opacity(track.isSkipped ? 0.42 : (isBeingDragged ? 0.35 : 1))
         .animation(.easeOut(duration: 0.12), value: isDropTarget)
+        .animation(.easeOut(duration: 0.12), value: track.isSkipped)
         .onHover { hovering in isHovering = hovering }
+        .contextMenu {
+            Button(track.isSkipped ? "Unskip Track" : "Skip Track") { onToggleSkip() }
+            Button("Delete Track", role: .destructive) { onDelete() }
+        }
         .pointingHandCursor()
     }
 }
@@ -1053,6 +1090,7 @@ struct MetadataEditorPanel: View {
     @State private var isEditingTempoText: Bool = false
     @State private var tempoTextInput: String = ""
     @State private var customTempoOverride: Double? = nil
+    @State private var editingTrackID: UUID? = nil
     
     
     private var isEditingSpotifyTrack: Bool {
@@ -1275,6 +1313,7 @@ struct MetadataEditorPanel: View {
     
     private func hydrateFormFields() {
         guard let target = player.selectedTrackForEditing else { return }
+        editingTrackID = target.id
         editableTitle = target.title
         editableArtist = target.artist
         localArtwork = target.artwork
@@ -1310,8 +1349,8 @@ struct MetadataEditorPanel: View {
     }
     
     func saveMetadataModifications() {
-        guard let target = player.selectedTrackForEditing ?? player.tracks.first(where: { $0.title == editableTitle || $0.artist == editableArtist }),
-              let matchIdx = player.tracks.firstIndex(where: { $0.id == target.id }) else { return }
+        guard let editingTrackID,
+              let matchIdx = player.tracks.firstIndex(where: { $0.id == editingTrackID }) else { return }
         
         let startMin = Double(startMinString) ?? 0.0
         let startSec = Double(startSecString) ?? 0.0
@@ -1320,27 +1359,24 @@ struct MetadataEditorPanel: View {
         let endMin = Double(endMinString) ?? 0.0
         let endSec = Double(endSecString) ?? 0.0
         let calculatedEnd = (endMin * 60.0) + endSec
-        
-        player.tracks[matchIdx].title = editableTitle
-        player.tracks[matchIdx].artist = editableArtist
-        player.tracks[matchIdx].artwork = localArtwork
-        if player.tracks[matchIdx].source == .local {
-            player.tracks[matchIdx].tempoPercentage = tempoPercentage
+
+        var updatedTrack = player.tracks[matchIdx]
+        updatedTrack.title = editableTitle
+        updatedTrack.artist = editableArtist
+        updatedTrack.artwork = localArtwork
+        if updatedTrack.source == .local {
+            updatedTrack.tempoPercentage = tempoPercentage
         }
-        player.tracks[matchIdx].startTime = calculatedStart
-        
-        if calculatedEnd < player.tracks[matchIdx].duration && calculatedEnd > calculatedStart {
-            player.tracks[matchIdx].endTime = calculatedEnd
-        } else {
-            player.tracks[matchIdx].endTime = nil
-        }
+        updatedTrack.startTime = calculatedStart
+        updatedTrack.endTime = (calculatedEnd < updatedTrack.duration && calculatedEnd > calculatedStart) ? calculatedEnd : nil
+        player.tracks[matchIdx] = updatedTrack
         
         if player.currentIndex == matchIdx {
             player.synchronizeActiveTrackSettings()
         }
         
         // Auto-commit properties directly to the permanent library JSON cache
-        player.saveTrack(player.tracks[matchIdx])
+        player.saveTrack(updatedTrack)
     }
 }
 

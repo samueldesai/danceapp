@@ -44,6 +44,7 @@ struct Track: Identifiable, Equatable {
     var artwork: NSImage?
     var songHash: String
     var source: TrackSource = .local
+    var isSkipped: Bool = false
     var spotifyURI: String? = nil
     var spotifyExternalURL: URL? = nil
 
@@ -99,6 +100,7 @@ struct Track: Identifiable, Equatable {
 struct PersistedTrack: Codable {
     var songHash: String
     var source: TrackSource?
+    var isSkipped: Bool?
     var spotifyURI: String?
     var spotifyExternalURL: String?
 
@@ -189,6 +191,7 @@ private extension Track {
 struct ProjectPackageTrack: Codable {
     var songHash: String
     var source: TrackSource
+    var isSkipped: Bool?
     var spotifyURI: String?
     var spotifyExternalURL: String?
     var title: String
@@ -208,6 +211,7 @@ struct ProjectPackageTrack: Codable {
     init(from track: Track, localFileName: String? = nil, artworkFileName: String? = nil) {
         self.songHash = track.songHash
         self.source = track.source
+        self.isSkipped = track.isSkipped
         self.spotifyURI = track.spotifyURI
         self.spotifyExternalURL = track.spotifyExternalURL?.absoluteString
         self.title = track.title
@@ -229,6 +233,7 @@ struct ProjectPackageTrack: Codable {
         PersistedTrack(
             songHash: songHash,
             source: source,
+            isSkipped: isSkipped,
             spotifyURI: spotifyURI,
             spotifyExternalURL: spotifyExternalURL,
             title: title,
@@ -1117,6 +1122,8 @@ class PlayerController: ObservableObject {
     @Published var spotifySearchResults: [Track] = []
     @Published var importStatusMessage: String? = nil
     @Published var activeImportOperations: Int = 0
+    @Published var importTotalCount: Int = 0
+    @Published var importCompletedCount: Int = 0
     @Published var tracks: [Track] = [] {
         didSet {
             // Forces a refresh sync down to all observing views when the collection shifts
@@ -1143,8 +1150,22 @@ class PlayerController: ObservableObject {
         return tracks[idx]
     }
 
+    var firstPlayableIndex: Int? {
+        tracks.firstIndex(where: { !$0.isSkipped })
+    }
+
     var isImportingContent: Bool {
         activeImportOperations > 0 || isSpotifyImporting || isBatchProcessingLoudness
+    }
+
+    var importProgressFraction: Double? {
+        guard importTotalCount > 0 else { return nil }
+        return Double(importCompletedCount) / Double(importTotalCount)
+    }
+
+    var importProgressSummary: String? {
+        guard importTotalCount > 0 else { return nil }
+        return "Imported \(min(importCompletedCount, importTotalCount)) of \(importTotalCount) songs"
     }
 
     init() {
@@ -1152,10 +1173,14 @@ class PlayerController: ObservableObject {
         setupSpacebarKeyMonitor()
     }
 
-    func beginImportActivity(message: String? = nil) {
+    func beginImportActivity(message: String? = nil, totalCount: Int? = nil) {
         activeImportOperations += 1
         if let message {
             importStatusMessage = message
+        }
+        if let totalCount {
+            importTotalCount = max(0, totalCount)
+            importCompletedCount = 0
         }
     }
 
@@ -1163,6 +1188,59 @@ class PlayerController: ObservableObject {
         activeImportOperations = max(0, activeImportOperations - 1)
         if activeImportOperations == 0, !isSpotifyImporting {
             importStatusMessage = nil
+            importTotalCount = 0
+            importCompletedCount = 0
+        }
+    }
+
+    func advanceImportProgress() {
+        guard importTotalCount > 0 else { return }
+        importCompletedCount = min(importTotalCount, importCompletedCount + 1)
+    }
+
+    func isTrackSkipped(at index: Int) -> Bool {
+        tracks.indices.contains(index) ? tracks[index].isSkipped : false
+    }
+
+    func playableIndex(after index: Int? = nil) -> Int? {
+        let start = min((index ?? -1) + 1, tracks.count)
+        guard start < tracks.count else { return nil }
+        return tracks.indices.first(where: { $0 >= start && !tracks[$0].isSkipped })
+    }
+
+    func playableIndex(before index: Int? = nil) -> Int? {
+        guard !tracks.isEmpty else { return nil }
+        let start = min(index ?? tracks.count, tracks.count - 1)
+        guard start >= 0 else { return nil }
+        return tracks.indices.reversed().first(where: { $0 < start && !tracks[$0].isSkipped })
+    }
+
+    func queueNumber(for trackID: UUID) -> Int? {
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }),
+              !tracks[index].isSkipped else { return nil }
+        return tracks.prefix(index + 1).filter { !$0.isSkipped }.count
+    }
+
+    func toggleSkipTrack(at index: Int) {
+        guard tracks.indices.contains(index) else { return }
+
+        tracks[index].isSkipped.toggle()
+        saveTrack(tracks[index])
+        scheduleProjectAutosave()
+        objectWillChange.send()
+
+        if tracks[index].isSkipped, currentIndex == index {
+            if let nextPlayable = playableIndex(after: index) ?? playableIndex(before: index) {
+                play(index: nextPlayable)
+            } else {
+                avPlayer?.pause()
+                stopSpotifyProgressMonitor()
+                isPlaying = false
+                currentTime = 0
+                duration = 0
+                currentIndex = nil
+                isBetweenSongs = false
+            }
         }
     }
 
@@ -1487,10 +1565,10 @@ class PlayerController: ObservableObject {
     }
     
     var upNextTracks: [Track] {
-        guard let idx = currentIndex else { return Array(tracks.prefix(3)) }
-        let start = idx + 1
-        guard start < tracks.count else { return [] }
-        return Array(tracks[start..<min(start + 3, tracks.count)])
+        let playableTracks = tracks.filter { !$0.isSkipped }
+        guard let idx = currentIndex else { return Array(playableTracks.prefix(3)) }
+        guard let start = playableIndex(after: idx) else { return [] }
+        return Array(tracks[start..<tracks.count].filter { !$0.isSkipped }.prefix(3))
     }
     
     deinit {
@@ -1589,6 +1667,12 @@ class PlayerController: ObservableObject {
     
     func prepareTrack(index: Int, autoPlay: Bool, previousTrackOverride: Track? = nil) {
         guard tracks.indices.contains(index) else { return }
+        guard !tracks[index].isSkipped else {
+            if let fallbackIndex = playableIndex(after: index) ?? playableIndex(before: index) {
+                prepareTrack(index: fallbackIndex, autoPlay: autoPlay, previousTrackOverride: previousTrackOverride)
+            }
+            return
+        }
         isHandlingSongEnd = false
         
         let previousTrack = previousTrackOverride ?? currentTrack
@@ -1718,6 +1802,13 @@ class PlayerController: ObservableObject {
     }
     
     func play(index: Int) {
+        guard tracks.indices.contains(index) else { return }
+        if tracks[index].isSkipped {
+            if let fallbackIndex = playableIndex(after: index) ?? playableIndex(before: index) {
+                prepareTrack(index: fallbackIndex, autoPlay: true)
+            }
+            return
+        }
         prepareTrack(index: index, autoPlay: true)
     }
     
@@ -1731,22 +1822,21 @@ class PlayerController: ObservableObject {
             isHandlingSongEnd = false
             return
         }
-        let nextIdx = currentIdx + 1
         let endedTrack = currentTrack
 
         lastTrack = currentTrack
 
-        if nextIdx < tracks.count {
+        if let nextPlayable = playableIndex(after: currentIdx) {
 
-            currentIndex = nextIdx
-            duration = tracks[nextIdx].effectiveDuration
+            currentIndex = nextPlayable
+            duration = tracks[nextPlayable].effectiveDuration
             currentTime = 0
             isPlaying = false
             isBetweenSongs = true
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self else { return }
-                self.prepareTrack(index: nextIdx, autoPlay: false, previousTrackOverride: endedTrack)
+                self.prepareTrack(index: nextPlayable, autoPlay: false, previousTrackOverride: endedTrack)
                 self.isHandlingSongEnd = false
             }
         } else {
@@ -1803,8 +1893,16 @@ class PlayerController: ObservableObject {
                 pauseSpotifyPlayback()
                 isPlaying = false
             } else {
-                playSpotifyTrack(track)
-                isPlaying = true
+                if track.isSkipped {
+                    if let nextPlayable = playableIndex(after: currentIndex) ?? playableIndex(before: currentIndex) {
+                        play(index: nextPlayable)
+                        return
+                    }
+                } else {
+                    playSpotifyTrack(track)
+                    isPlaying = true
+                    return
+                }
             }
             return
         }
@@ -1812,8 +1910,8 @@ class PlayerController: ObservableObject {
         guard avPlayer != nil else {
             if let idx = currentIndex, tracks.indices.contains(idx), tracks[idx].source == .spotify {
                 play(index: idx)
-            } else if !tracks.isEmpty {
-                play(index: 0)
+            } else if let firstPlayableIndex {
+                play(index: firstPlayableIndex)
             }
             return
         }
@@ -1831,14 +1929,14 @@ class PlayerController: ObservableObject {
     }
     
     func next() {
-        if let idx = currentIndex, idx + 1 < tracks.count {
-            play(index: idx + 1)
+        if let idx = playableIndex(after: currentIndex) {
+            play(index: idx)
         }
     }
     
     func previous() {
-        if let idx = currentIndex, idx - 1 >= 0 {
-            play(index: idx - 1)
+        if let idx = playableIndex(before: currentIndex) {
+            play(index: idx)
         }
     }
     
@@ -1921,6 +2019,7 @@ class PlayerController: ObservableObject {
         track.artist = persistedTrack.artist
         track.danceStyles = Set(persistedTrack.danceStyles)
         track.customStyle = persistedTrack.customStyle
+        track.isSkipped = persistedTrack.isSkipped ?? false
         track.startTime = persistedTrack.startTime
         track.endTime = persistedTrack.endTime
         track.tempoPercentage = persistedTrack.tempoPercentage
@@ -2232,10 +2331,41 @@ class PlayerController: ObservableObject {
         panel.allowedContentTypes = [.audio, .mp3, .mpeg4Audio, UTType(filenameExtension: "flac")!, UTType(filenameExtension: "wav")!]
         
         panel.begin { [weak self] response in
-            if response == .OK {
-                for url in panel.urls {
-                    self?.processAudioURL(url)
+            guard response == .OK else { return }
+            self?.importAudioURLs(panel.urls)
+        }
+    }
+
+    private func importAudioURLs(
+        _ urls: [URL],
+        presetDanceStyles: Set<String>? = nil,
+        runReplayGainOnAdd: Bool = false
+    ) {
+        let sortedURLs = sortedImportURLs(urls)
+
+        guard !sortedURLs.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            await MainActor.run {
+                self.beginImportActivity(message: "Importing audio files...", totalCount: sortedURLs.count)
+            }
+
+            for (index, url) in sortedURLs.enumerated() {
+                await self.importAudioURL(
+                    url,
+                    presetDanceStyles: presetDanceStyles,
+                    runReplayGainOnAdd: runReplayGainOnAdd,
+                    shouldShowImportActivity: false
+                )
+                await MainActor.run {
+                    self.importCompletedCount = min(self.importTotalCount, index + 1)
                 }
+            }
+
+            await MainActor.run {
+                self.finishImportActivity()
             }
         }
     }
@@ -2259,148 +2389,189 @@ class PlayerController: ObservableObject {
         presetDanceStyles: Set<String>? = nil,
         runReplayGainOnAdd: Bool = false
     ) {
+        Task {
+            await self.importAudioURL(
+                url,
+                presetDanceStyles: presetDanceStyles,
+                runReplayGainOnAdd: runReplayGainOnAdd,
+                shouldShowImportActivity: true
+            )
+        }
+    }
+
+    private func sortedImportURLs(_ urls: [URL]) -> [URL] {
+        urls.sorted { lhs, rhs in
+            let leftKey = importSortKey(for: lhs)
+            let rightKey = importSortKey(for: rhs)
+
+            if leftKey.group != rightKey.group {
+                return leftKey.group < rightKey.group
+            }
+
+            if leftKey.number != rightKey.number {
+                return leftKey.number < rightKey.number
+            }
+
+            return leftKey.name.localizedStandardCompare(rightKey.name) == .orderedAscending
+        }
+    }
+
+    private func importSortKey(for url: URL) -> (group: Int, number: Int, name: String) {
+        let name = url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let match = name.range(of: #"^\d+"#, options: .regularExpression),
+           let number = Int(name[match]),
+           number > 0 {
+            return (0, number, name.lowercased())
+        }
+
+        return (1, Int.max, name.lowercased())
+    }
+
+    private func importAudioURL(
+        _ url: URL,
+        presetDanceStyles: Set<String>? = nil,
+        runReplayGainOnAdd: Bool = false,
+        shouldShowImportActivity: Bool
+    ) async {
         let accessSecure = url.startAccessingSecurityScopedResource()
         let asset = AVURLAsset(url: url)
-        beginImportActivity(message: "Importing audio files...")
 
-        Task {
-            defer {
+        if shouldShowImportActivity {
+            await MainActor.run {
+                self.beginImportActivity(message: "Importing audio files...")
+            }
+        }
+
+        defer {
+            if shouldShowImportActivity {
                 Task { @MainActor in
                     self.finishImportActivity()
                 }
             }
+        }
 
-            var title = url.deletingPathExtension().lastPathComponent
-            var artist = "Unknown Artist"
-            var danceStyleParsed = ""
-            var artwork: NSImage? = nil
-            var trackDuration: TimeInterval = 210
+        var title = url.deletingPathExtension().lastPathComponent
+        var artist = "Unknown Artist"
+        var danceStyleParsed = ""
+        var artwork: NSImage? = nil
+        var trackDuration: TimeInterval = 210
 
-            do {
-                let durationValue = try await asset.load(.duration)
-                if !durationValue.seconds.isNaN {
-                    trackDuration = durationValue.seconds
-                }
-
-                let commonMetadata = try await asset.load(.commonMetadata)
-                for item in commonMetadata {
-                    if let commonKey = item.commonKey {
-                        switch commonKey {
-                        case .commonKeyTitle:
-                            if let strValue = try await item.load(.stringValue) { title = strValue }
-                        case .commonKeyArtist:
-                            if let strValue = try await item.load(.stringValue) { artist = strValue }
-                        case .commonKeyArtwork:
-                            if let dataValue = try await item.load(.dataValue) { artwork = NSImage(data: dataValue) }
-                        default:
-                            break
-                        }
-                    }
-                }
-
-                let metadataFormats = try await asset.load(.availableMetadataFormats)
-                for format in metadataFormats {
-                    let items = try await asset.loadMetadata(for: format)
-                    for item in items {
-                        if let keyString = item.key as? String {
-                            if keyString.lowercased().contains("dance style") || keyString == "TXXX" {
-                                if let val = try await item.load(.stringValue) {
-                                    danceStyleParsed = val
-                                        .replacingOccurrences(of: "Dance Style\u{0}", with: "", options: [.caseInsensitive])
-                                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch {
-                print("Metadata extraction error: \(error.localizedDescription)")
+        do {
+            let durationValue = try await asset.load(.duration)
+            if !durationValue.seconds.isNaN {
+                trackDuration = durationValue.seconds
             }
-            
-            let hash = hashAudioFile(url)
-            
-            await MainActor.run { [weak self] in
-                guard let self = self else { return }
 
-                var matchedStyles = Set<String>()
-                var customText = ""
-
-                if !danceStyleParsed.isEmpty {
-                    if let matchedStyle = predefinedDanceStyles.first(where: {
-                        $0.caseInsensitiveCompare(danceStyleParsed) == .orderedSame
-                    }) {
-                        matchedStyles.insert(matchedStyle)
-                    } else {
-                        customText = danceStyleParsed
+            let commonMetadata = try await asset.load(.commonMetadata)
+            for item in commonMetadata {
+                if let commonKey = item.commonKey {
+                    switch commonKey {
+                    case .commonKeyTitle:
+                        if let strValue = try await item.load(.stringValue) { title = strValue }
+                    case .commonKeyArtist:
+                        if let strValue = try await item.load(.stringValue) { artist = strValue }
+                    case .commonKeyArtwork:
+                        if let dataValue = try await item.load(.dataValue) { artwork = NSImage(data: dataValue) }
+                    default:
+                        break
                     }
-                }
-                
-                let library = loadLibrary()
-                let saved = library.tracks.first { $0.songHash == hash }
-
-                var startTime: Double = 0
-                var endTime: Double? = nil
-                var tempoPercentage: Double = 0
-
-                if let saved {
-                    startTime = saved.startTime
-                    endTime = saved.endTime
-                    tempoPercentage = saved.tempoPercentage
-                    matchedStyles = Set(saved.danceStyles)
-                    customText = saved.customStyle
-                }
-
-                if let presetDanceStyles {
-                    matchedStyles.formUnion(presetDanceStyles)
-                }
-
-                var newTrack = Track(
-                    url: url,
-                    title: title,
-                    artist: artist,
-                    danceStyles: matchedStyles,
-                    customStyle: customText,
-                    duration: trackDuration,
-                    artwork: artwork,
-                    songHash: hash,
-                    measuredLoudness: saved?.measuredLoudness,
-                    gainCorrectiondB: saved?.gainCorrectiondB ?? 0,
-                    startTime: startTime,
-                    endTime: endTime,
-                    tempoPercentage: tempoPercentage
-                )
-
-                self.applyTaggedStyles(to: &newTrack)
-                self.materializeLocalTrackAssetsIfNeeded(
-                    &newTrack,
-                    sourceURL: url,
-                    artwork: artwork
-                )
-
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-
-                    // FIX 1: Append EXACTLY ONCE
-                    self.tracks.append(newTrack)
-                    self.showThankYouScreen = false
-                    let trackIndex = self.tracks.count - 1
-
-                    if self.currentIndex == nil {
-                        self.prepareTrack(index: 0, autoPlay: false)
-                    }
-
-                    if runReplayGainOnAdd {
-                        self.calculateLoudness(forTrackAt: trackIndex)
-                    }
-
-                    // FIX 2: Trigger the background trailing silence trimmer.
-                    // Security scope is released inside trimTrailingSilence after
-                    // the async work completes so the file stays accessible during
-                    // the background scan and export.
-                    print("Starting trailing silence trim analysis for: \(title)")
-                    self.trimTrailingSilence(forTrackAt: trackIndex, releaseSecurityScope: accessSecure ? url : nil)
                 }
             }
+
+            let metadataFormats = try await asset.load(.availableMetadataFormats)
+            for format in metadataFormats {
+                let items = try await asset.loadMetadata(for: format)
+                for item in items {
+                    if let keyString = item.key as? String,
+                       (keyString.lowercased().contains("dance style") || keyString == "TXXX"),
+                       let val = try await item.load(.stringValue) {
+                        danceStyleParsed = val
+                            .replacingOccurrences(of: "Dance Style\u{0}", with: "", options: [.caseInsensitive])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+            }
+        } catch {
+            print("Metadata extraction error: \(error.localizedDescription)")
+        }
+
+        let hash = hashAudioFile(url)
+
+        await MainActor.run { [weak self] in
+            guard let self = self else { return }
+
+            var matchedStyles = Set<String>()
+            var customText = ""
+
+            if !danceStyleParsed.isEmpty {
+                if let matchedStyle = predefinedDanceStyles.first(where: {
+                    $0.caseInsensitiveCompare(danceStyleParsed) == .orderedSame
+                }) {
+                    matchedStyles.insert(matchedStyle)
+                } else {
+                    customText = danceStyleParsed
+                }
+            }
+
+            let library = loadLibrary()
+            let saved = library.tracks.first { $0.songHash == hash }
+
+            var startTime: Double = 0
+            var endTime: Double? = nil
+            var tempoPercentage: Double = 0
+
+            if let saved {
+                startTime = saved.startTime
+                endTime = saved.endTime
+                tempoPercentage = saved.tempoPercentage
+                matchedStyles = Set(saved.danceStyles)
+                customText = saved.customStyle
+            }
+
+            if let presetDanceStyles {
+                matchedStyles.formUnion(presetDanceStyles)
+            }
+
+            var newTrack = Track(
+                url: url,
+                title: title,
+                artist: artist,
+                danceStyles: matchedStyles,
+                customStyle: customText,
+                duration: trackDuration,
+                artwork: artwork,
+                songHash: hash,
+                measuredLoudness: saved?.measuredLoudness,
+                gainCorrectiondB: saved?.gainCorrectiondB ?? 0,
+                startTime: startTime,
+                endTime: endTime,
+                tempoPercentage: tempoPercentage
+            )
+
+            self.applyTaggedStyles(to: &newTrack)
+            self.materializeLocalTrackAssetsIfNeeded(
+                &newTrack,
+                sourceURL: url,
+                artwork: artwork
+            )
+
+            self.tracks.append(newTrack)
+            self.showThankYouScreen = false
+            let trackIndex = self.tracks.count - 1
+
+            if self.currentIndex == nil {
+                self.prepareTrack(index: self.firstPlayableIndex ?? trackIndex, autoPlay: false)
+            }
+
+            if runReplayGainOnAdd {
+                self.calculateLoudness(forTrackAt: trackIndex)
+            }
+
+            // Trigger background trailing silence analysis after the track is in the queue.
+            print("Starting trailing silence trim analysis for: \(title)")
+            self.trimTrailingSilence(forTrackAt: trackIndex, releaseSecurityScope: accessSecure ? url : nil)
         }
     }
 
@@ -3085,6 +3256,7 @@ class PlayerController: ObservableObject {
             PersistedTrack(
                 songHash: track.songHash,
                 source: track.source,
+                isSkipped: track.isSkipped,
                 spotifyURI: track.spotifyURI,
                 spotifyExternalURL: track.spotifyExternalURL?.absoluteString,
                 title: track.title,
@@ -3139,6 +3311,7 @@ class PlayerController: ObservableObject {
             PersistedTrack(
                 songHash: track.songHash,
                 source: track.source,
+                isSkipped: track.isSkipped,
                 spotifyURI: track.spotifyURI,
                 spotifyExternalURL: track.spotifyExternalURL?.absoluteString,
                 title: track.title,

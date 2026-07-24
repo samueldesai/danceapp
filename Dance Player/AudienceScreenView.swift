@@ -18,14 +18,14 @@ struct PublicDisplayWindowView: View {
     }
 
     var upNextTracks: [Track] {
+        let playableTracks = player.tracks.filter { !$0.isSkipped }
         guard let currentIdx = player.currentIndex else {
-            return Array(player.tracks.prefix(3))
+            return Array(playableTracks.prefix(3))
         }
-        let nextStartIndex = currentIdx + 1
-        guard nextStartIndex < player.tracks.count else {
+        guard let nextStartIndex = player.playableIndex(after: currentIdx) else {
             return []
         }
-        return Array(player.tracks[nextStartIndex..<min(nextStartIndex + 3, player.tracks.count)])
+        return Array(player.tracks[nextStartIndex..<player.tracks.count].filter { !$0.isSkipped }.prefix(3))
     }
     
     var body: some View {
