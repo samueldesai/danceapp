@@ -55,7 +55,10 @@ struct Track: Identifiable, Equatable {
     var startTime: TimeInterval = 0.0
     var endTime: TimeInterval? = nil
     var tempoPercentage: Double = 0.0 // e.g., +5.0 means 105% speed, -10.0 means 90% speed
-    
+
+    // Manually-entered BPM for the audience screen, independent of tempoPercentage (playback speed).
+    var manualBPM: String = ""
+
     var speedMultiplier: Double {
         let multiplier = 1.0 + (tempoPercentage / 100.0)
         return max(0.25, min(multiplier, 2.0)) // Constrain between 25% and 200% speed
@@ -70,10 +73,14 @@ struct Track: Identifiable, Equatable {
     var formattedStylesDisplay: String {
         let isJam = danceStyles.contains("Jam")
         let isWithStranger = danceStyles.contains("Dance with a Stranger")
+        // "Cross-Step Waltz Mixer" already implies Cross-Step Waltz — listing both reads
+        // as "Cross-Step Waltz or Cross-Step Waltz Mixer" instead of just the specific one.
+        let hasCrossStepWaltzMixer = danceStyles.contains("Cross-Step Waltz Mixer")
 
         var items: [String] = []
         for style in predefinedDanceStyles {
             guard style != "Jam", style != "Dance with a Stranger" else { continue }
+            guard !(style == "Cross-Step Waltz" && hasCrossStepWaltzMixer) else { continue }
             if danceStyles.contains(style) {
                 if style == "Other" && !customStyle.isEmpty {
                     items.append(customStyle)
@@ -113,6 +120,7 @@ struct PersistedTrack: Codable {
     var startTime: Double
     var endTime: Double?
     var tempoPercentage: Double
+    var manualBPM: String? = nil
 
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
@@ -127,17 +135,35 @@ struct ProjectPackageExport: Codable {
     var version: Int = 1
     var projectName: String
     var tracks: [ProjectPackageTrack]
+    // Advanced Settings are project-specific — each new project starts with these off,
+    // regardless of what a previously-opened project had set.
+    var showTempo: Bool = false
+    var autoplayEnabled: Bool = false
+    var autoplayDelaySeconds: Double = 10.0
 
     private enum CodingKeys: String, CodingKey {
         case version
         case projectName
         case tracks
+        case showTempo
+        case autoplayEnabled
+        case autoplayDelaySeconds
     }
 
-    init(projectName: String, tracks: [ProjectPackageTrack], version: Int = 1) {
+    init(
+        projectName: String,
+        tracks: [ProjectPackageTrack],
+        version: Int = 1,
+        showTempo: Bool = false,
+        autoplayEnabled: Bool = false,
+        autoplayDelaySeconds: Double = 10.0
+    ) {
         self.version = version
         self.projectName = projectName
         self.tracks = tracks
+        self.showTempo = showTempo
+        self.autoplayEnabled = autoplayEnabled
+        self.autoplayDelaySeconds = autoplayDelaySeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +171,11 @@ struct ProjectPackageExport: Codable {
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
         projectName = try container.decodeIfPresent(String.self, forKey: .projectName) ?? "Dance Player Project"
         tracks = try container.decodeIfPresent([ProjectPackageTrack].self, forKey: .tracks) ?? []
+        // Older project files predate these keys — default to disabled rather than
+        // trying to carry over some prior global setting.
+        showTempo = try container.decodeIfPresent(Bool.self, forKey: .showTempo) ?? false
+        autoplayEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoplayEnabled) ?? false
+        autoplayDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .autoplayDelaySeconds) ?? 10.0
     }
 }
 
@@ -201,6 +232,7 @@ struct ProjectPackageTrack: Codable {
     var startTime: Double
     var endTime: Double?
     var tempoPercentage: Double
+    var manualBPM: String? = nil
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
     var duration: Double
@@ -221,6 +253,7 @@ struct ProjectPackageTrack: Codable {
         self.startTime = track.startTime
         self.endTime = track.endTime
         self.tempoPercentage = track.tempoPercentage
+        self.manualBPM = track.manualBPM
         self.measuredLoudness = track.measuredLoudness
         self.gainCorrectiondB = track.gainCorrectiondB
         self.duration = track.duration
@@ -243,6 +276,7 @@ struct ProjectPackageTrack: Codable {
             startTime: startTime,
             endTime: endTime,
             tempoPercentage: tempoPercentage,
+            manualBPM: manualBPM,
             measuredLoudness: measuredLoudness,
             gainCorrectiondB: gainCorrectiondB,
             artworkData: artworkData
@@ -855,11 +889,17 @@ final class SpotifyService {
     private func apiRequest<T: Decodable>(_ url: URL, clientID: String, retryCount: Int = 0) async throws -> T {
         let request = try await authorizedRequest(url, clientID: clientID)
         let (data, response) = try await URLSession.shared.data(for: request)
-        
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
-            let finalSleepTime = 30.0
+
+        // Spotify briefly rate-limits right after a fresh token exchange fairly often —
+        // this used to fall straight through to validate() and throw with no retry,
+        // which made the very next call (e.g. the first workbook Spotify search) look
+        // like it silently found nothing.
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429, retryCount < 3 {
+            let retryAfterSeconds = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 1.0
+            try await Task.sleep(nanoseconds: UInt64(max(0.5, retryAfterSeconds) * 1_000_000_000))
+            return try await apiRequest(url, clientID: clientID, retryCount: retryCount + 1)
         }
-        
+
         try validate(response: response, data: data)
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -1096,6 +1136,8 @@ class PlayerController: ObservableObject {
     @Published var autosaveEnabled = false
     @Published var hasLoadedProject = false
     @Published var showThankYouScreen = false
+    /// Non-nil while the DJ is reviewing a parsed Dancebreak DJ Workbook — takes over the main pane.
+    @Published var pendingWorkbookImport: [WorkbookImportRow]? = nil
 
     @Published var currentIndex: Int? = nil {
         didSet {
@@ -1116,6 +1158,20 @@ class PlayerController: ObservableObject {
     @Published var lastTrack: Track? = nil
     @Published var isBetweenSongs = false
     @Published var selectedTrackForEditing: Track? = nil
+
+    // MARK: - Advanced Settings
+    // These are project-specific (saved/loaded with the project package, see
+    // ProjectPackageExport) — every new project starts with them disabled, regardless
+    // of what a previously-opened project had set.
+    /// Single global toggle — when on, every track's manual BPM shows in the main control view (not the audience screen).
+    @Published var showTempo: Bool = false
+    @Published var autoplayEnabled: Bool = false
+    @Published var autoplayDelaySeconds: Double = 10.0
+    /// Transient — true while the auto-advance timer is counting down toward the next song.
+    @Published var autoplayCountdownActive: Bool = false
+    /// Seconds left in the current autoplay countdown, ticking down once a second.
+    @Published var autoplayCountdownRemaining: Double = 0
+
     @Published var spotifyStatusMessage: String? = nil
     @Published var isSpotifyImporting = false
     @Published var isSpotifySearching = false
@@ -1140,6 +1196,7 @@ class PlayerController: ObservableObject {
     private var isPresentingCloseSavePrompt = false
     private var isHandlingSongEnd = false
     private var displayWindowController: NSWindowController?
+    private var autoplayCountdownTask: Task<Void, Never>?
     private let spotifyService = SpotifyService()
     private var spacebarKeyMonitor: Any?
     
@@ -1385,15 +1442,22 @@ class PlayerController: ObservableObject {
 
     private func saveCurrentProjectPackage() {
         guard hasLoadedProject, autosaveEnabled, let destinationDirectoryURL = projectRootFolderURL else { return }
+        let projectName = safeProjectName
 
-        do {
-            _ = try exportProjectPackage(
-                toProjectFolder: destinationDirectoryURL,
-                projectName: safeProjectName,
-                overwriteExisting: true
-            )
-        } catch {
-            print("Failed autosaving project package: \(error.localizedDescription)")
+        // The actual work here is a full pass of file copies + JSON encoding over every
+        // track in the library — background it so routine autosaves (fired after every
+        // song add/edit) never block the UI thread.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try self.exportProjectPackage(
+                    toProjectFolder: destinationDirectoryURL,
+                    projectName: projectName,
+                    overwriteExisting: true
+                )
+            } catch {
+                print("Failed autosaving project package: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -1674,7 +1738,8 @@ class PlayerController: ObservableObject {
             return
         }
         isHandlingSongEnd = false
-        
+        pauseAutoplayCountdown()
+
         let previousTrack = previousTrackOverride ?? currentTrack
         removeTimeObserver()
         stopSpotifyProgressMonitor()
@@ -1838,6 +1903,8 @@ class PlayerController: ObservableObject {
                 guard let self else { return }
                 self.prepareTrack(index: nextPlayable, autoPlay: false, previousTrackOverride: endedTrack)
                 self.isHandlingSongEnd = false
+                // prepareTrack() clears any pending countdown, so schedule the new one after it runs.
+                self.scheduleAutoplayCountdownIfNeeded()
             }
         } else {
             avPlayer?.pause()
@@ -1852,39 +1919,94 @@ class PlayerController: ObservableObject {
         }
     }
     
+    /// Cancels a pending autoplay countdown without advancing — used when the DJ presses
+    /// play/pause (or the explicit "Abort Auto-Play" control) while the timer is counting
+    /// down, so the count simply stops and the between-songs pane waits indefinitely for
+    /// a manual play, exactly like autoplay being off.
+    func pauseAutoplayCountdown() {
+        autoplayCountdownTask?.cancel()
+        autoplayCountdownTask = nil
+        if autoplayCountdownActive {
+            autoplayCountdownActive = false
+        }
+        autoplayCountdownRemaining = 0
+    }
+
+    /// Starts (or restarts) the auto-advance timer while the between-songs pane is showing,
+    /// if Autoplay is enabled in Advanced Settings. No-op otherwise. Ticks
+    /// `autoplayCountdownRemaining` down once a second so the UI can show a live countdown.
+    private func scheduleAutoplayCountdownIfNeeded() {
+        pauseAutoplayCountdown()
+        guard autoplayEnabled, isBetweenSongs else { return }
+
+        autoplayCountdownActive = true
+        autoplayCountdownRemaining = autoplayDelaySeconds
+        autoplayCountdownTask = Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+
+                let remaining = await MainActor.run { () -> Double in
+                    self.autoplayCountdownRemaining = max(0, self.autoplayCountdownRemaining - 1)
+                    return self.autoplayCountdownRemaining
+                }
+
+                if remaining <= 0 {
+                    await MainActor.run {
+                        guard self.autoplayCountdownActive else { return }
+                        self.beginNextTrackFromBetweenSongs()
+                    }
+                    return
+                }
+            }
+        }
+    }
+
+    /// The "resume playback" behavior when the DJ (or the autoplay timer) advances out of the
+    /// between-songs pane straight into the next prepared track.
+    private func beginNextTrackFromBetweenSongs() {
+        autoplayCountdownTask?.cancel()
+        autoplayCountdownTask = nil
+        isBetweenSongs = false
+        autoplayCountdownActive = false
+        autoplayCountdownRemaining = 0
+        if let track = currentTrack, track.source == .spotify {
+            if isPlaying {
+                let absolutePauseTime = track.startTime + self.currentTime
+                if let idx = currentIndex {
+                    // Update our internal model cache with this position
+                    self.tracks[idx].startTime = absolutePauseTime
+                    self.saveTrack(self.tracks[idx])
+                }
+
+                stopSpotifyProgressMonitor()
+                pauseSpotifyPlayback()
+                isPlaying = false
+            } else {
+                playSpotifyTrack(track)
+                isPlaying = true
+            }
+        } else {
+            if let track = currentTrack {
+                let startCMTime = CMTime(seconds: track.startTime, preferredTimescale: 600)
+                avPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+            avPlayer?.play()
+            if let speed = currentTrack?.speedMultiplier {
+                avPlayer?.rate = Float(speed)
+            }
+            isPlaying = true
+        }
+    }
+
     func togglePlayPause() {
         if isBetweenSongs {
-            isBetweenSongs = false
-            if let track = currentTrack, track.source == .spotify {
-                if isPlaying {
-                    let absolutePauseTime = track.startTime + self.currentTime
-                    if let idx = currentIndex {
-                        // Update our internal model cache with this position
-                        self.tracks[idx].startTime = absolutePauseTime
-                        self.saveTrack(self.tracks[idx])
-                    }
-
-                    stopSpotifyProgressMonitor()
-                    pauseSpotifyPlayback()
-                    isPlaying = false
-                } else {
-                    playSpotifyTrack(track)
-                    isPlaying = true
-                }
-                return
-            } else {
-
-                if let track = currentTrack {
-                    let startCMTime = CMTime(seconds: track.startTime, preferredTimescale: 600)
-                    avPlayer?.seek(to: startCMTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                }
-                avPlayer?.play()
-                if let speed = currentTrack?.speedMultiplier {
-                    avPlayer?.rate = Float(speed)
-                }
-                isPlaying = true
-                return
-            }
+            // Nothing is actually playing while between songs, so this always means
+            // "play now" in one click — aborting the countdown without playing is a
+            // separate, explicit action (the "Abort Auto-Play" control).
+            beginNextTrackFromBetweenSongs()
+            return
         }
 
         if let track = currentTrack, track.source == .spotify {
@@ -1929,6 +2051,13 @@ class PlayerController: ObservableObject {
     }
     
     func next() {
+        // While between songs, `currentIndex` already points at the staged next track —
+        // advance should just start playing it (same as pressing play), not skip past it
+        // to whatever comes after.
+        if isBetweenSongs {
+            beginNextTrackFromBetweenSongs()
+            return
+        }
         if let idx = playableIndex(after: currentIndex) {
             play(index: idx)
         }
@@ -2023,6 +2152,7 @@ class PlayerController: ObservableObject {
         track.startTime = persistedTrack.startTime
         track.endTime = persistedTrack.endTime
         track.tempoPercentage = persistedTrack.tempoPercentage
+        track.manualBPM = persistedTrack.manualBPM ?? ""
         track.measuredLoudness = persistedTrack.measuredLoudness
         track.gainCorrectiondB = persistedTrack.gainCorrectiondB
 
@@ -2336,6 +2466,37 @@ class PlayerController: ObservableObject {
         }
     }
 
+    func openWorkbookImportPicker() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.commaSeparatedText, UTType(filenameExtension: "xlsx")!]
+        panel.message = "Choose a Dancebreak DJ Workbook (CSV or XLSX)"
+        panel.prompt = "Import"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let rows = loadWorkbookRows(from: url)
+        guard !rows.isEmpty else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "No songs found"
+            alert.informativeText = "Couldn't find any recognizable song rows in that file. Check that it has \"Song Title\" and \"Artist\" columns."
+            alert.runModal()
+            return
+        }
+
+        // If the DJ didn't type a project name before picking the workbook, default to
+        // the file's own name rather than the generic placeholder — it's still editable
+        // in the review pane itself before Confirm.
+        let trimmedName = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty || trimmedName == "Dance Player Project" {
+            projectName = sanitizeProjectName(url.deletingPathExtension().lastPathComponent)
+        }
+
+        pendingWorkbookImport = rows
+    }
+
     private func importAudioURLs(
         _ urls: [URL],
         presetDanceStyles: Set<String>? = nil,
@@ -2396,6 +2557,111 @@ class PlayerController: ObservableObject {
                 runReplayGainOnAdd: runReplayGainOnAdd,
                 shouldShowImportActivity: true
             )
+        }
+    }
+
+    // MARK: - Dancebreak DJ Workbook Import
+    // These `async` variants are awaited directly (rather than fire-and-forget like
+    // processAudioURL/importPopularEdit above) so the workbook importer can go song by
+    // song, one file picker / one Spotify search at a time.
+
+    func importWorkbookPopularEdit(
+        _ edit: PopularEdit,
+        title: String,
+        artist: String,
+        danceStyles: Set<String>,
+        customStyle: String,
+        manualBPM: String
+    ) async {
+        guard let url = popularEditResourceURL(for: edit) else {
+            print("Popular edit resource not found: \(edit.resourceName).\(edit.fileExtension)")
+            return
+        }
+        // The bundled file's own embedded tags (or a stale prior-import cache entry for
+        // the same hash) shouldn't override what the DJ's workbook actually says — the
+        // audio comes from the bundle, but title/artist/style/BPM come from the sheet.
+        let hash = hashAudioFile(url)
+        await importAudioURL(url, presetDanceStyles: danceStyles, runReplayGainOnAdd: true, shouldShowImportActivity: true)
+
+        await MainActor.run {
+            guard let idx = self.tracks.firstIndex(where: { $0.songHash == hash }) else { return }
+            self.tracks[idx].title = title
+            self.tracks[idx].artist = artist
+            self.tracks[idx].danceStyles = danceStyles
+            self.tracks[idx].customStyle = customStyle
+            self.tracks[idx].manualBPM = manualBPM
+            self.saveTrack(self.tracks[idx])
+        }
+    }
+
+    func importWorkbookLocalFile(
+        url: URL,
+        title: String,
+        artist: String,
+        danceStyles: Set<String>,
+        customStyle: String,
+        manualBPM: String
+    ) async {
+        // Same rationale as importWorkbookPopularEdit above: the picked file's own
+        // embedded tags (or a stale prior-import cache entry) shouldn't leak through —
+        // the workbook row is the source of truth for everything except the audio itself.
+        let hash = hashAudioFile(url)
+        await importAudioURL(url, presetDanceStyles: danceStyles, runReplayGainOnAdd: false, shouldShowImportActivity: true)
+
+        await MainActor.run {
+            guard let idx = self.tracks.firstIndex(where: { $0.songHash == hash }) else { return }
+            self.tracks[idx].title = title
+            self.tracks[idx].artist = artist
+            self.tracks[idx].danceStyles = danceStyles
+            self.tracks[idx].customStyle = customStyle
+            self.tracks[idx].manualBPM = manualBPM
+            self.saveTrack(self.tracks[idx])
+        }
+    }
+
+    /// Searches Spotify for `title artist`, imports the top result if found, and returns
+    /// whether a match was imported. Requires the DJ to have entered a Spotify Client ID
+    /// and completed the browser sign-in/approval — `SpotifyService.connect` triggers that.
+    /// Searches Spotify for `title artist` and returns the candidates for the DJ to
+    /// choose from (mirrors the manual "Track from Spotify" search) rather than picking
+    /// one automatically. Requires the DJ to have entered a Spotify Client ID and
+    /// completed the browser sign-in/approval — `SpotifyService.connect` triggers that.
+    func searchWorkbookSpotifyTracks(title: String, artist: String, clientID: String) async -> [Track] {
+        do {
+            try await spotifyService.connect(clientID: clientID)
+            let query = artist.isEmpty || artist == "Unknown Artist" ? title : "\(title) \(artist)"
+            return try await spotifyService.searchTracks(query: query, clientID: clientID)
+        } catch {
+            return []
+        }
+    }
+
+    /// Imports the specific search result the DJ picked, applying the workbook row's
+    /// dance styles / custom style / BPM overrides.
+    func importWorkbookSpotifyMatch(
+        _ track: Track,
+        danceStyles: Set<String>,
+        customStyle: String,
+        manualBPM: String
+    ) async {
+        var matched = track
+        matched.danceStyles = danceStyles
+        matched.customStyle = customStyle
+        matched.manualBPM = manualBPM
+
+        await MainActor.run {
+            self.appendSpotifyTracks([matched])
+        }
+    }
+
+    /// Resolves a pasted Spotify track URL/URI directly instead of searching by text —
+    /// used as the Confirm-time fallback for a row with no approved match.
+    func resolveWorkbookSpotifyURL(_ input: String, clientID: String) async -> Track? {
+        do {
+            try await spotifyService.connect(clientID: clientID)
+            return try await spotifyService.importTrack(from: input, clientID: clientID)
+        } catch {
+            return nil
         }
     }
 
@@ -2499,63 +2765,66 @@ class PlayerController: ObservableObject {
 
         let hash = hashAudioFile(url)
 
+        // Everything below is disk/CPU work (JSON decode, audio file copy, artwork write) that
+        // doesn't touch @Published state — keep it off the main actor so imports don't stall the UI.
+        var matchedStyles = Set<String>()
+        var customText = ""
+
+        if !danceStyleParsed.isEmpty {
+            if let matchedStyle = predefinedDanceStyles.first(where: {
+                $0.caseInsensitiveCompare(danceStyleParsed) == .orderedSame
+            }) {
+                matchedStyles.insert(matchedStyle)
+            } else {
+                customText = danceStyleParsed
+            }
+        }
+
+        let library = loadLibrary()
+        let saved = library.tracks.first { $0.songHash == hash }
+
+        var startTime: Double = 0
+        var endTime: Double? = nil
+        var tempoPercentage: Double = 0
+
+        if let saved {
+            startTime = saved.startTime
+            endTime = saved.endTime
+            tempoPercentage = saved.tempoPercentage
+            matchedStyles = Set(saved.danceStyles)
+            customText = saved.customStyle
+        }
+
+        if let presetDanceStyles {
+            matchedStyles.formUnion(presetDanceStyles)
+        }
+
+        var newTrack = Track(
+            url: url,
+            title: title,
+            artist: artist,
+            danceStyles: matchedStyles,
+            customStyle: customText,
+            duration: trackDuration,
+            artwork: artwork,
+            songHash: hash,
+            measuredLoudness: saved?.measuredLoudness,
+            gainCorrectiondB: saved?.gainCorrectiondB ?? 0,
+            startTime: startTime,
+            endTime: endTime,
+            tempoPercentage: tempoPercentage,
+            manualBPM: saved?.manualBPM ?? ""
+        )
+
+        applyTaggedStyles(to: &newTrack)
+        materializeLocalTrackAssetsIfNeeded(
+            &newTrack,
+            sourceURL: url,
+            artwork: artwork
+        )
+
         await MainActor.run { [weak self] in
             guard let self = self else { return }
-
-            var matchedStyles = Set<String>()
-            var customText = ""
-
-            if !danceStyleParsed.isEmpty {
-                if let matchedStyle = predefinedDanceStyles.first(where: {
-                    $0.caseInsensitiveCompare(danceStyleParsed) == .orderedSame
-                }) {
-                    matchedStyles.insert(matchedStyle)
-                } else {
-                    customText = danceStyleParsed
-                }
-            }
-
-            let library = loadLibrary()
-            let saved = library.tracks.first { $0.songHash == hash }
-
-            var startTime: Double = 0
-            var endTime: Double? = nil
-            var tempoPercentage: Double = 0
-
-            if let saved {
-                startTime = saved.startTime
-                endTime = saved.endTime
-                tempoPercentage = saved.tempoPercentage
-                matchedStyles = Set(saved.danceStyles)
-                customText = saved.customStyle
-            }
-
-            if let presetDanceStyles {
-                matchedStyles.formUnion(presetDanceStyles)
-            }
-
-            var newTrack = Track(
-                url: url,
-                title: title,
-                artist: artist,
-                danceStyles: matchedStyles,
-                customStyle: customText,
-                duration: trackDuration,
-                artwork: artwork,
-                songHash: hash,
-                measuredLoudness: saved?.measuredLoudness,
-                gainCorrectiondB: saved?.gainCorrectiondB ?? 0,
-                startTime: startTime,
-                endTime: endTime,
-                tempoPercentage: tempoPercentage
-            )
-
-            self.applyTaggedStyles(to: &newTrack)
-            self.materializeLocalTrackAssetsIfNeeded(
-                &newTrack,
-                sourceURL: url,
-                artwork: artwork
-            )
 
             self.tracks.append(newTrack)
             self.showThankYouScreen = false
@@ -2692,7 +2961,7 @@ class PlayerController: ObservableObject {
         }
         displayWindowController?.showWindow(nil)
     }
-    
+
     // MARK: - Library Persistence
 
     private var libraryJSONURL: URL {
@@ -2738,6 +3007,7 @@ class PlayerController: ObservableObject {
                 startTime: track.startTime,
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
+                manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 artworkData: track.persistableArtworkData
@@ -2758,6 +3028,7 @@ class PlayerController: ObservableObject {
                     startTime: track.startTime,
                     endTime: track.endTime,
                     tempoPercentage: track.tempoPercentage,
+                    manualBPM: track.manualBPM,
                     measuredLoudness: track.measuredLoudness,
                     gainCorrectiondB: track.gainCorrectiondB,
                     artworkData: track.persistableArtworkData
@@ -2858,6 +3129,10 @@ class PlayerController: ObservableObject {
         selectedTrackForEditing = nil
         spotifySearchResults = []
         spotifyStatusMessage = nil
+        showTempo = false
+        autoplayEnabled = false
+        autoplayDelaySeconds = 10.0
+        pauseAutoplayCountdown()
         persistTracksToLibrary([])
 
         // Eagerly create the project folder structure so that
@@ -2904,6 +3179,36 @@ class PlayerController: ObservableObject {
                     named: sanitizedName,
                     autosaveParentURL: folderURL
                 )
+            }
+        }
+    }
+
+    /// Starts a fresh project shell (same as "Create New Project") and immediately opens
+    /// the Dancebreak DJ Workbook file picker — used from the welcome screen so importing
+    /// a workbook lands in the review pane / main window instead of falling back here.
+    func beginWorkbookImportFlow(named name: String, autosaveRequested: Bool) {
+        let sanitizedName = sanitizeProjectName(name)
+
+        guard autosaveRequested else {
+            createNewProject(named: sanitizedName, autosaveParentURL: nil)
+            openWorkbookImportPicker()
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = defaultPanelDirectoryURL
+        panel.message = "Choose where the project folder should live."
+        panel.prompt = "Choose"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let folderURL = panel.url else { return }
+            DispatchQueue.main.async {
+                self?.createNewProject(named: sanitizedName, autosaveParentURL: folderURL)
+                self?.openWorkbookImportPicker()
             }
         }
     }
@@ -3069,7 +3374,10 @@ class PlayerController: ObservableObject {
 
         let package = ProjectPackageExport(
             projectName: sanitizedProjectName,
-            tracks: exportedTracks
+            tracks: exportedTracks,
+            showTempo: showTempo,
+            autoplayEnabled: autoplayEnabled,
+            autoplayDelaySeconds: autoplayDelaySeconds
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -3136,6 +3444,9 @@ class PlayerController: ObservableObject {
             await MainActor.run {
                 self.hasLoadedProject = true
                 self.showThankYouScreen = false
+                self.showTempo = package.showTempo
+                self.autoplayEnabled = package.autoplayEnabled
+                self.autoplayDelaySeconds = package.autoplayDelaySeconds
                 self.tracks = mergedTracks
                 if let previousActiveSongHash,
                    let index = self.tracks.firstIndex(where: { $0.songHash == previousActiveSongHash }) {
@@ -3266,6 +3577,7 @@ class PlayerController: ObservableObject {
                 startTime: track.startTime,
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
+                manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 artworkData: track.persistableArtworkData
@@ -3321,12 +3633,13 @@ class PlayerController: ObservableObject {
                 startTime: track.startTime,
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
+                manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 artworkData: track.persistableArtworkData
             )
         }
-        
+
         let container = LibraryContainer(tracks: currentTracksToPersist)
         
         let encoder = JSONEncoder()

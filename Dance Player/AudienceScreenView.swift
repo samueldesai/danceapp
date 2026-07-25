@@ -115,12 +115,12 @@ struct PublicDisplayWindowView: View {
                                 }
                                 
                                 Spacer()
-                                
+
                                 VStack(spacing: 12) {
                                     Button(action: {
                                         player.togglePlayPause()
                                     }) {
-                                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                        Image(systemName: "play.fill")
                                             .font(.system(size: 18, weight: .medium))
                                             .foregroundColor(.white)
                                             .frame(width: 36, height: 36)
@@ -229,7 +229,7 @@ struct PublicDisplayWindowView: View {
                             } else {
                                 Spacer().frame(height: 50)
                             }
-                            
+
                             if let last = player.lastTrack {
                                 Text("LAST PLAYED")
                                     .font(.system(size: 12, weight: .bold))

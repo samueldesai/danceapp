@@ -17,13 +17,20 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if player.hasLoadedProject {
+            if let workbookRows = player.pendingWorkbookImport {
+                WorkbookImportReviewView(
+                    player: player,
+                    rows: workbookRows,
+                    onFinished: { player.pendingWorkbookImport = nil }
+                )
+            } else if player.hasLoadedProject {
                 HSplitView {
                     PlaylistView(player: player)
                         .frame(minWidth: 240, maxWidth: 320)
                     LibraryTableView(player: player)
                 }
-                
+                .disabled(player.isImportingContent)
+
                 if player.selectedTrackForEditing != nil {
                     Color.black.opacity(0.4)
                         .onTapGesture {
@@ -31,7 +38,7 @@ struct ContentView: View {
                                 player.selectedTrackForEditing = nil
                             }
                         }
-                    
+
                     HStack {
                         Spacer()
                         MetadataEditorPanel(player: player)
@@ -177,6 +184,15 @@ struct ProjectWelcomeView: View {
 
                     Button("Import Existing Project") {
                         player.beginImportProjectFlow(
+                            named: projectName,
+                            autosaveRequested: wantsAutosave
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .pointingHandCursor()
+
+                    Button("Import from DJ Workbook") {
+                        player.beginWorkbookImportFlow(
                             named: projectName,
                             autosaveRequested: wantsAutosave
                         )
@@ -805,19 +821,8 @@ struct PlaylistRow: View {
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                if isImporting {
-                    Text(track.title)
-                        .font(.system(size: 11, weight: isPlaying ? .bold : .medium))
-                        .foregroundColor(isPlaying ? .white : Color(hex: "#a3a3ac"))
-                        .lineLimit(1)
-                    Text(track.artist)
-                        .font(.system(size: 9))
-                        .foregroundColor(Color(hex: "#6b6b75"))
-                        .lineLimit(1)
-                } else {
-                    MarqueeText(text: track.title, font: .system(size: 11, weight: isPlaying ? .bold : .medium), color: isPlaying ? .white : Color(hex: "#a3a3ac"))
-                    MarqueeText(text: track.artist, font: .system(size: 9), color: Color(hex: "#6b6b75"))
-                }
+                MarqueeText(text: track.title, font: .system(size: 11, weight: isPlaying ? .bold : .medium), color: isPlaying ? .white : Color(hex: "#a3a3ac"), isEnabled: !isImporting)
+                MarqueeText(text: track.artist, font: .system(size: 9), color: Color(hex: "#6b6b75"), isEnabled: !isImporting)
             }
             
             Spacer()
@@ -898,14 +903,18 @@ struct PlaylistDropDelegate: DropDelegate {
 
 struct LibraryTableView: View {
     @ObservedObject var player: PlayerController
+    @State private var draggedTrack: Track? = nil
+    @State private var dropTargetTrackID: UUID? = nil
+    @State private var lastDropHapticTrackID: UUID? = nil
+    @State private var isShowingAdvancedSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
                 TransportControls(player: player)
-                
+
                 Spacer()
-                
+
                 Button(action: { player.openDisplayWindow() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "macwindow")
@@ -913,6 +922,12 @@ struct LibraryTableView: View {
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
+
+                Button(action: { isShowingAdvancedSettings = true }) {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+                .help("Advanced Settings")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -931,22 +946,51 @@ struct LibraryTableView: View {
                                 .padding(.leading, 40)
                         } else {
                             ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(player: player, track: track, index: index, isPlaying: player.currentIndex == index)
+                                TrackRow(
+                                    player: player,
+                                    track: track,
+                                    index: index,
+                                    isPlaying: player.currentIndex == index,
+                                    isBeingDragged: draggedTrack?.id == track.id,
+                                    isDropTarget: dropTargetTrackID == track.id
+                                )
+                                    .onDrag {
+                                        self.draggedTrack = track
+                                        self.dropTargetTrackID = nil
+                                        self.lastDropHapticTrackID = nil
+                                        return NSItemProvider(object: track.id.uuidString as NSString)
+                                    }
+                                    .onDrop(of: [.text], delegate: PlaylistDropDelegate(
+                                        targetTrack: track,
+                                        player: player,
+                                        draggedTrack: $draggedTrack,
+                                        dropTargetTrackID: $dropTargetTrackID,
+                                        lastDropHapticTrackID: $lastDropHapticTrackID
+                                    ))
                                 Rectangle()
                                         .fill(Color(hex: "#71717a"))
                                         .frame(height: 1)
+                            }
+                        }
                     }
+                }
+                .onChange(of: draggedTrack?.id) { _, newValue in
+                    if newValue == nil {
+                        dropTargetTrackID = nil
+                        lastDropHapticTrackID = nil
+                    }
+                }
             }
-        }
-    }
-}
-            
+
             PlaybackStatusBar(player: player)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(Color(hex: "#111114"))
         }
         .background(Color(hex: "#111114"))
+        .sheet(isPresented: $isShowingAdvancedSettings) {
+            AdvancedSettingsView(player: player)
+        }
     }
 }
 
@@ -955,6 +999,8 @@ struct TrackRow: View {
     let track: Track
     let index: Int
     let isPlaying: Bool
+    var isBeingDragged: Bool = false
+    var isDropTarget: Bool = false
     @State private var isShowingPicker = false
 
     var body: some View {
@@ -1002,7 +1048,20 @@ struct TrackRow: View {
                 }
                 
                 Spacer(minLength: 16)
-                    
+
+                if player.showTempo {
+                    Text(track.manualBPM.isEmpty ? "-- BPM" : "\(track.manualBPM) BPM")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(track.manualBPM.isEmpty ? Color(hex: "#52525b") : Color(hex: "#3478f6"))
+                        .padding(.trailing, 12)
+                        .help("Double-click to set this track's tempo")
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            player.selectedTrackForEditing = track
+                        }
+                        .pointingHandCursor()
+                }
+
                 Text(formatDuration(track.effectiveDuration))
                     .font(.system(size: 15))
                     .foregroundColor(isPlaying ? .white : Color(hex: "#71717a"))
@@ -1034,7 +1093,24 @@ struct TrackRow: View {
             .pointingHandCursor()
             .frame(maxWidth: .infinity)
             .popover(isPresented: $isShowingPicker, arrowEdge: .trailing) {
-                DanceStyleMultiSelectorPopover(player: player, trackIndex: index)
+                DanceStyleMultiSelectorPopover(
+                    danceStyles: Binding(
+                        get: { player.tracks.indices.contains(index) ? player.tracks[index].danceStyles : [] },
+                        set: { newValue in
+                            if player.tracks.indices.contains(index) {
+                                player.tracks[index].danceStyles = newValue
+                            }
+                        }
+                    ),
+                    customStyle: Binding(
+                        get: { player.tracks.indices.contains(index) ? player.tracks[index].customStyle : "" },
+                        set: { newValue in
+                            if player.tracks.indices.contains(index) {
+                                player.tracks[index].customStyle = newValue
+                            }
+                        }
+                    )
+                )
             }
 
             // Column 3: Edit Metadata (Styled like Calculate ReplayGain & Formatted Left)
@@ -1056,7 +1132,19 @@ struct TrackRow: View {
         .font(.system(size: 15))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(isPlaying ? Color(hex: "#142844") : Color.clear)
+        .background(
+            // While dragged, the system's drag-preview snapshot uses this exact
+            // background — Color.clear here would make the row illegible against
+            // whatever's behind the cursor, so force it opaque during the drag.
+            isBeingDragged ? Color(hex: "#111114") :
+                (isDropTarget ? Color(hex: "#1c2f52") : (isPlaying ? Color(hex: "#142844") : Color.clear))
+        )
+        .overlay(
+            Rectangle()
+                .stroke(isDropTarget ? Color(hex: "#60a5fa") : Color.clear, lineWidth: 1)
+        )
+        .opacity(isBeingDragged ? 0.35 : 1)
+        .animation(.easeOut(duration: 0.12), value: isDropTarget)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onTapGesture(count: 2) {
             player.play(index: index)
@@ -1091,6 +1179,29 @@ struct MetadataEditorPanel: View {
     @State private var tempoTextInput: String = ""
     @State private var customTempoOverride: Double? = nil
     @State private var editingTrackID: UUID? = nil
+
+    // Manual base BPM + the derived, slider-driven "current" BPM readout/edit
+    @State private var manualBPMText: String = ""
+    @State private var isEditingEffectiveBPMText: Bool = false
+    @State private var effectiveBPMTextInput: String = ""
+
+    private var baseBPMValue: Double? {
+        guard let value = Double(manualBPMText), value > 0 else { return nil }
+        return value
+    }
+
+    private var effectiveBPMValue: Double? {
+        guard let base = baseBPMValue else { return nil }
+        return base * (1 + tempoPercentage / 100)
+    }
+
+    /// Slider granularity: whole-BPM steps once Show Tempo is on and a base BPM is set, else the default 0.5%.
+    private var tempoSliderStep: Double {
+        if player.showTempo, let base = baseBPMValue, base > 0 {
+            return max(0.02, 100.0 / base)
+        }
+        return 0.5
+    }
     
     
     private var isEditingSpotifyTrack: Bool {
@@ -1246,11 +1357,51 @@ struct MetadataEditorPanel: View {
                                 }
                         }
                     }
-                    
+
+                    HStack(spacing: 8) {
+                        Text("BASE BPM")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.gray)
+                        TextField("blank", text: $manualBPMText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 55)
+                            .font(.system(size: 11))
+
+                        if baseBPMValue != nil {
+                            Text("→")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+
+                            if isEditingEffectiveBPMText {
+                                TextField("bpm", text: $effectiveBPMTextInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 55)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .onSubmit {
+                                        commitEffectiveBPMTextInput()
+                                    }
+                                    .onExitCommand {
+                                        isEditingEffectiveBPMText = false
+                                        effectiveBPMTextInput = ""
+                                    }
+                            } else if let effective = effectiveBPMValue {
+                                Text("\(Int(effective.rounded())) BPM")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.blue)
+                                    .help("Click to type a target BPM")
+                                    .onTapGesture {
+                                        effectiveBPMTextInput = String(Int(effective.rounded()))
+                                        isEditingEffectiveBPMText = true
+                                    }
+                            }
+                        }
+                        Spacer()
+                    }
+
                         TicklessSlider(
                             value: $tempoPercentage,
                             range: -25...25,
-                            step: 0.5,
+                            step: tempoSliderStep,
                             onEditingChanged: { isEditing in
                                 if !isEditing {
                                     HapticFeedback.perform(.levelChange)
@@ -1310,7 +1461,19 @@ struct MetadataEditorPanel: View {
         tempoTextInput = ""
         HapticFeedback.perform(.levelChange)
     }
-    
+
+    private func commitEffectiveBPMTextInput() {
+        if let base = baseBPMValue, let target = Double(effectiveBPMTextInput), base > 0 {
+            let impliedPercentage = ((target / base) - 1) * 100
+            let clamped = max(-25, min(25, impliedPercentage))
+            customTempoOverride = clamped
+            tempoPercentage = clamped
+        }
+        isEditingEffectiveBPMText = false
+        effectiveBPMTextInput = ""
+        HapticFeedback.perform(.levelChange)
+    }
+
     private func hydrateFormFields() {
         guard let target = player.selectedTrackForEditing else { return }
         editingTrackID = target.id
@@ -1318,6 +1481,7 @@ struct MetadataEditorPanel: View {
         editableArtist = target.artist
         localArtwork = target.artwork
         tempoPercentage = target.tempoPercentage
+        manualBPMText = target.manualBPM
         
         let startTotalSec = Int(target.startTime)
         let startMin = startTotalSec / 60
@@ -1367,6 +1531,7 @@ struct MetadataEditorPanel: View {
         if updatedTrack.source == .local {
             updatedTrack.tempoPercentage = tempoPercentage
         }
+        updatedTrack.manualBPM = manualBPMText
         updatedTrack.startTime = calculatedStart
         updatedTrack.endTime = (calculatedEnd < updatedTrack.duration && calculatedEnd > calculatedStart) ? calculatedEnd : nil
         player.tracks[matchIdx] = updatedTrack
@@ -1381,17 +1546,31 @@ struct MetadataEditorPanel: View {
 }
 
 struct DanceStyleMultiSelectorPopover: View {
-    @ObservedObject var player: PlayerController
-    let trackIndex: Int
+    @Binding var danceStyles: Set<String>
+    @Binding var customStyle: String
     @State private var searchText: String = ""
-    
+
+    private static let styleAbbreviations: [String: [String]] = [
+        "Night Club Two Step": ["nc2s", "ncts"],
+        "West Coast Swing": ["wcs"],
+        "Last West Coast Swing": ["lwcs"],
+        "Cross-Step Waltz": ["xstep"]
+    ]
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var filteredStyles: [String] {
-        if searchText.isEmpty {
-            return predefinedDanceStyles
-        } else {
-            return predefinedDanceStyles.filter { style in
-                style.localizedCaseInsensitiveContains(searchText)
+        let trimmed = trimmedSearchText
+        guard !trimmed.isEmpty else { return predefinedDanceStyles }
+
+        return predefinedDanceStyles.filter { style in
+            if style.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let abbreviations = Self.styleAbbreviations[style] {
+                return abbreviations.contains { $0.lowercased().hasPrefix(trimmed.lowercased()) }
             }
+            return false
         }
     }
     
@@ -1437,11 +1616,30 @@ struct DanceStyleMultiSelectorPopover: View {
             ScrollView {
                 VStack(spacing: 2) {
                     if filteredStyles.isEmpty {
-                        Text("No styles match your filter")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
-                            .padding(.top, 20)
-                            .padding(.leading, 40)
+                        if !trimmedSearchText.isEmpty {
+                            HStack {
+                                Image(systemName: "plus.square")
+                                    .foregroundColor(.blue)
+                                Text("Use \"\(trimmedSearchText)\" as custom style")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.blue)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                useSearchTextAsCustomStyle(trimmedSearchText)
+                            }
+                            .pointingHandCursor()
+                            .padding(.top, 8)
+                        } else {
+                            Text("No styles match your filter")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                                .padding(.top, 20)
+                                .padding(.leading, 40)
+                        }
                     } else {
                         ForEach(filteredStyles, id: \.self) { style in
                             HStack {
@@ -1471,16 +1669,9 @@ struct DanceStyleMultiSelectorPopover: View {
                     Text("Custom Style Designation:")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.gray)
-                    TextField("Type custom style...", text: Binding(
-                        get: { player.tracks.indices.contains(trackIndex) ? player.tracks[trackIndex].customStyle : "" },
-                        set: { newValue in
-                            if player.tracks.indices.contains(trackIndex) {
-                                player.tracks[trackIndex].customStyle = newValue
-                            }
-                        }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .labelsHidden()
+                    TextField("Type custom style...", text: $customStyle)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
                 }
                 .padding(10)
                 .background(Color(hex: "#09090b"))
@@ -1489,19 +1680,25 @@ struct DanceStyleMultiSelectorPopover: View {
         .frame(width: 210)
         .background(Color(hex: "#18181b"))
     }
-    
+
     private func isStyleSelected(_ style: String) -> Bool {
-        guard player.tracks.indices.contains(trackIndex) else { return false }
-        return player.tracks[trackIndex].danceStyles.contains(style)
+        danceStyles.contains(style)
     }
-    
+
     private func toggleStyleSelection(_ style: String) {
-        guard player.tracks.indices.contains(trackIndex) else { return }
-        if player.tracks[trackIndex].danceStyles.contains(style) {
-            player.tracks[trackIndex].danceStyles.remove(style)
+        if danceStyles.contains(style) {
+            danceStyles.remove(style)
         } else {
-            player.tracks[trackIndex].danceStyles.insert(style)
+            danceStyles.insert(style)
         }
+    }
+
+    /// Files the typed text under "Other" (so `formattedStylesDisplay` shows it as-is)
+    /// when nothing predefined matches what the DJ typed.
+    private func useSearchTextAsCustomStyle(_ text: String) {
+        danceStyles.insert("Other")
+        customStyle = text
+        searchText = ""
     }
 }
 
@@ -1540,7 +1737,8 @@ struct PlaybackStatusBar: View {
                         MarqueeText(
                             text: "LAST PLAYED: \(last.title) — \(last.artist) - \(last.formattedStylesDisplay)",
                             font: .system(size: 15, weight: .bold),
-                            color: Color(hex: "#5b34f6")
+                            color: Color(hex: "#5b34f6"),
+                            isEnabled: !player.isImportingContent
                         )
                     }
                     HStack(spacing: 6) {
@@ -1548,12 +1746,38 @@ struct PlaybackStatusBar: View {
                             MarqueeText(
                                 text: "The next song is a " + (player.currentTrack?.formattedStylesDisplay ?? "-"),
                                 font: .system(size: 30, weight: .bold),
-                                color: Color(hex: "#eab308")
+                                color: Color(hex: "#eab308"),
+                                isEnabled: !player.isImportingContent
                             )
                         }
                         statusDisplayView
                             .font(.system(size: 20, weight: .medium))
                             .foregroundColor(statusDisplayColor)
+                    }
+
+                    if player.autoplayCountdownActive {
+                        HStack(spacing: 8) {
+                            Text("Next song in \(Int(player.autoplayCountdownRemaining.rounded(.up)))s")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color(hex: "#eab308"))
+
+                            ProgressView(value: player.autoplayCountdownRemaining, total: max(1, player.autoplayDelaySeconds))
+                                .progressViewStyle(.linear)
+                                .tint(Color(hex: "#eab308"))
+                                .frame(width: 120)
+
+                            Button("Abort Auto-Play") {
+                                player.pauseAutoplayCountdown()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color(hex: "#dc2626"))
+                            .cornerRadius(4)
+                            .pointingHandCursor()
+                        }
                     }
                 }
                 Spacer()
@@ -1590,9 +1814,9 @@ struct PlaybackStatusBar: View {
             HStack(spacing: 0) {
             }
         } else if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
-            MarqueeText(text: message, font: .system(size: 30, weight: .bold), color: statusDisplayColor)
+            MarqueeText(text: message, font: .system(size: 30, weight: .bold), color: statusDisplayColor, isEnabled: !player.isImportingContent)
         } else if player.currentTrack?.source == .spotify || player.currentTrack?.source == .local {
-            ScrollingMarquee {
+            ScrollingMarquee(content: {
                 HStack(spacing: 0) {
                     Text("Now Playing ")
                     .font(.system(size: 30))
@@ -1604,7 +1828,7 @@ struct PlaybackStatusBar: View {
                     .font(.system(size: 30, weight: .bold))
                 }
                 .foregroundColor(statusDisplayColor)
-            }
+            }, isEnabled: !player.isImportingContent)
             .id("\(title)|\(artist)|\(styles)")
         }
     }
@@ -1665,13 +1889,16 @@ struct ScrollingMarquee<Content: View>: View {
     var gap: CGFloat = 48
     /// How long to pause (fully visible at the start) before each pass.
     var pauseDuration: Double = 3
+    /// When false, never scrolls (renders static truncated text) — used to pause the
+    /// continuous per-frame animation while a heavier task (e.g. importing) is running.
+    var isEnabled: Bool = true
 
     @State private var contentWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
     @State private var startDate = Date()
 
     private var needsScroll: Bool {
-        containerWidth > 0 && contentWidth > containerWidth + 0.5
+        isEnabled && containerWidth > 0 && contentWidth > containerWidth + 0.5
     }
 
     var body: some View {
@@ -1728,14 +1955,15 @@ struct MarqueeText: View {
     var font: Font
     var color: Color
     var resetKey: String? = nil
+    var isEnabled: Bool = true
 
     var body: some View {
-        ScrollingMarquee {
+        ScrollingMarquee(content: {
             Text(text)
                 .font(font)
                 .foregroundColor(color)
                 .lineLimit(1)
-        }
+        }, isEnabled: isEnabled)
         .id(resetKey ?? text)
     }
 }
@@ -1791,6 +2019,7 @@ struct TicklessSlider: NSViewRepresentable {
         nsView.doubleValue = value
         nsView.numberOfTickMarks = 0
         nsView.onEditingChanged = onEditingChanged
+        context.coordinator.step = step
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1827,5 +2056,101 @@ struct TicklessSlider: NSViewRepresentable {
             super.mouseDown(with: event)
             onEditingChanged?(false)
         }
+    }
+}
+
+// MARK: - Advanced Settings
+
+struct AdvancedSettingsView: View {
+    @ObservedObject var player: PlayerController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Advanced Settings")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+            }
+            .padding(16)
+
+            Divider().background(Color(hex: "#242429"))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    tempoSection
+                    Divider().background(Color(hex: "#242429"))
+                    autoplaySection
+                }
+                .padding(20)
+            }
+        }
+        .frame(width: 380, height: 360)
+        .background(Color(hex: "#111114"))
+        .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Tempo Display
+
+    private var tempoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("TEMPO DISPLAY")
+
+            Toggle("Show Tempo", isOn: $player.showTempo)
+                .toggleStyle(.switch)
+                .foregroundColor(.white)
+
+            Text("Shows each track's BPM to amake tempo changes easier.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+        }
+    }
+
+    // MARK: - Autoplay
+
+    private var autoplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("AUTOPLAY")
+
+            Toggle("Autoplay Next Song", isOn: $player.autoplayEnabled)
+                .toggleStyle(.switch)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Delay before next song")
+                        .font(.system(size: 13))
+                        .foregroundColor(player.autoplayEnabled ? .white : Color(hex: "#52525b"))
+                    Spacer()
+                    Text("\(Int(player.autoplayDelaySeconds))s")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(player.autoplayEnabled ? .white : Color(hex: "#52525b"))
+                }
+
+                Slider(value: $player.autoplayDelaySeconds, in: 5...30, step: 1)
+                    .disabled(!player.autoplayEnabled)
+                    .onChange(of: player.autoplayDelaySeconds) { _, _ in
+                        HapticFeedback.perform(.levelChange)
+                    }
+            }
+
+            Text("The in-between-songs screen still shows on the audience display. You can pause the countdown and it'll go straight into the next song when you press play again.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundColor(Color(hex: "#71717a"))
+            .tracking(0.5)
     }
 }
