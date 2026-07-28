@@ -34,6 +34,10 @@ struct WorkbookImportRow: Identifiable {
     // fixing a skipped row) without re-running already-succeeded rows, which would
     // otherwise re-prompt the file picker for every local song all over again.
     var hasBeenImported: Bool = false
+
+    // The track this row became, so the compliance check can measure real audio length
+    // instead of trusting the workbook's Length column.
+    var importedTrackID: UUID? = nil
 }
 
 // MARK: - Style resolution
@@ -232,24 +236,7 @@ private func columnIndex(fromCellReference ref: String) -> Int {
 }
 
 private func unzipEntry(from fileURL: URL, entryName: String) -> Data? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-    process.arguments = ["-p", fileURL.path, entryName]
-
-    let outputPipe = Pipe()
-    process.standardOutput = outputPipe
-    process.standardError = Pipe()
-
-    do {
-        try process.run()
-    } catch {
-        return nil
-    }
-
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0, !data.isEmpty else { return nil }
-    return data
+    ZipArchive.entryData(in: fileURL, named: entryName)
 }
 
 private final class SharedStringsParser: NSObject, XMLParserDelegate {
@@ -424,6 +411,8 @@ private let workbookSongColumnWidth: CGFloat = 240
 private let workbookSourceColumnWidth: CGFloat = 150
 private let workbookStylesColumnWidth: CGFloat = 220
 private let workbookBPMColumnWidth: CGFloat = 60
+private let workbookTempoColumnWidth: CGFloat = 66
+private let workbookLengthColumnWidth: CGFloat = 70
 
 
 /// Solid blue, bold white text — used for the primary actions in this flow (Confirm,
@@ -431,13 +420,17 @@ private let workbookBPMColumnWidth: CGFloat = 60
 private struct WorkbookPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
+    /// Greys the button out while still letting it be clicked, for actions that need to
+    /// explain why they aren't available yet.
+    var isMuted: Bool = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .bold))
             .foregroundColor(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(Color(hex: "#3478f6"))
+            .background(isMuted ? Color(hex: "#3f3f46") : Color(hex: "#3478f6"))
             .cornerRadius(6)
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
     }
@@ -448,7 +441,11 @@ struct WorkbookImportReviewView: View {
     @State var rows: [WorkbookImportRow]
     var onFinished: () -> Void
 
-    @State private var spotifyClientID: String = UserDefaults.standard.string(forKey: "spotifyClientID") ?? ""
+    /// Bound to the shared setting so the menu bar, project settings and this bar agree.
+    private var spotifyClientID: String {
+        get { player.spotifyClientID }
+        nonmutating set { player.spotifyClientID = newValue }
+    }
     @State private var isImporting = false
     @State private var currentSongIndex = 0
     @State private var currentImportTotal = 0
@@ -465,6 +462,8 @@ struct WorkbookImportReviewView: View {
 
     // Confirm-time fallback for a row that reaches Confirm with no approved match —
     // rather than just skipping it, let the DJ search or paste a link right there.
+    @State private var isPresentingComplianceCheck = false
+    @State private var isPresentingImportFirstNotice = false
     @State private var isPresentingSpotifyFallback = false
     @State private var spotifyFallbackRow: WorkbookImportRow? = nil
     @State private var spotifyFallbackQuery = ""
@@ -492,7 +491,7 @@ struct WorkbookImportReviewView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach($rows) { $row in
-                        WorkbookRowEditor(row: $row, isActive: isImporting && row.id == currentImportRowID)
+                        WorkbookRowEditor(row: $row, player: player, isActive: isImporting && row.id == currentImportRowID)
                         Divider().background(Color(hex: "#1c1c22"))
                     }
                 }
@@ -517,6 +516,16 @@ struct WorkbookImportReviewView: View {
         .sheet(isPresented: $isPresentingSpotifyFallback) {
             spotifyFallbackSheet
         }
+        .sheet(isPresented: $isPresentingComplianceCheck) {
+            GuidelineComplianceSheet(rows: rows, importedMetrics: importedMetrics) {
+                isPresentingComplianceCheck = false
+            }
+        }
+        .alert("Import the songs first", isPresented: $isPresentingImportFirstNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Song length is measured from the imported audio, not the workbook's Length column, so every song has to be imported before compliance can be checked.\n\n\(remainingImportCount) song\(remainingImportCount == 1 ? "" : "s") still to import.")
+        }
     }
 
     private var header: some View {
@@ -525,7 +534,9 @@ struct WorkbookImportReviewView: View {
                 Text("Dancebreak DJ Workbook Import")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                Text("\(rows.count) song\(rows.count == 1 ? "" : "s") found — review sources and styles, then confirm.")
+                Text(hasImportedEverything
+                     ? "\(rows.count) song\(rows.count == 1 ? "" : "s") imported — check compliance if you'd like, then save."
+                     : "\(rows.count) song\(rows.count == 1 ? "" : "s") found — review sources and styles, then import.")
                     .font(.system(size: 12))
                     .foregroundColor(Color(hex: "#71717a"))
 
@@ -551,7 +562,7 @@ struct WorkbookImportReviewView: View {
                 Text("Spotify Client ID")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color(hex: "#a3a3ac"))
-                TextField("Required when Local File? is unchecked", text: $spotifyClientID)
+                TextField("Required when Local File? is unchecked", text: $player.spotifyClientID)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
 
@@ -562,7 +573,7 @@ struct WorkbookImportReviewView: View {
                 .disabled(isFetchingSpotifyMatches || spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
-            Text("Fetches cover art for every Spotify-marked row up front — review each match below and approve it before confirming. You'll be asked to approve access in your browser the first time.")
+            Text("Fetches cover art for every Spotify-marked row up front — review each match below and confirm it before importing. You'll be asked to approve access in your browser the first time.")
                 .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#52525b"))
         }
@@ -577,6 +588,8 @@ struct WorkbookImportReviewView: View {
             Text("LOCAL FILE?").frame(width: workbookSourceColumnWidth, alignment: .leading)
             Text("STYLES").frame(width: workbookStylesColumnWidth, alignment: .leading)
             Text("BPM").frame(width: workbookBPMColumnWidth, alignment: .leading)
+            Text("TEMPO").frame(width: workbookTempoColumnWidth, alignment: .leading)
+            Text("LENGTH").frame(width: workbookLengthColumnWidth, alignment: .leading)
             Spacer(minLength: 0)
         }
         .font(.system(size: 12, weight: .bold))
@@ -612,17 +625,40 @@ struct WorkbookImportReviewView: View {
 
             Spacer()
 
-            Button(action: startImport) {
-                Text("Confirm — Import \(remainingImportCount) Song\(remainingImportCount == 1 ? "" : "s")")
+            // Stays clickable while greyed out so it can explain why it isn't ready yet.
+            Button("Check Guideline Compliance") {
+                if hasImportedEverything {
+                    isPresentingComplianceCheck = true
+                } else {
+                    isPresentingImportFirstNotice = true
+                }
             }
-            .buttonStyle(WorkbookPrimaryButtonStyle())
-            .disabled(remainingImportCount == 0)
+            .buttonStyle(WorkbookPrimaryButtonStyle(isMuted: !hasImportedEverything))
+            .padding(.trailing, 8)
+
+            if hasImportedEverything {
+                Button("Save") {
+                    onFinished()
+                }
+                .buttonStyle(WorkbookPrimaryButtonStyle())
+            } else {
+                Button(action: startImport) {
+                    Text("Import \(remainingImportCount) Song\(remainingImportCount == 1 ? "" : "s")")
+                }
+                .buttonStyle(WorkbookPrimaryButtonStyle())
+                .disabled(remainingImportCount == 0)
+            }
         }
         .padding(16)
     }
 
     private var remainingImportCount: Int {
         rows.filter { !$0.hasBeenImported }.count
+    }
+
+    /// Compliance needs every song's real audio length, so it waits for a complete import.
+    private var hasImportedEverything: Bool {
+        !rows.isEmpty && remainingImportCount == 0
     }
 
     private var importingOverlay: some View {
@@ -651,7 +687,6 @@ struct WorkbookImportReviewView: View {
     private func fetchAllSpotifyMatches() {
         let clientID = spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clientID.isEmpty else { return }
-        UserDefaults.standard.set(spotifyClientID, forKey: "spotifyClientID")
 
         let targetIndices = rows.indices.filter {
             !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil && rows[$0].spotifyMatch == nil
@@ -701,6 +736,7 @@ struct WorkbookImportReviewView: View {
         Task {
             for (progress, index) in indicesToImport.enumerated() {
                 let row = rows[index]
+                let trackCountBefore = await MainActor.run { player.tracks.count }
                 await MainActor.run {
                     currentSongIndex = progress
                     currentImportRowTitle = row.title
@@ -716,7 +752,7 @@ struct WorkbookImportReviewView: View {
                         customStyle: row.customStyleText,
                         manualBPM: row.bpm
                     )
-                    await MainActor.run { rows[index].hasBeenImported = true }
+                    await MainActor.run { markImported(index, since: trackCountBefore) }
                 } else if row.isLocal {
                     if let url = await pickLocalFile(for: row) {
                         await player.importWorkbookLocalFile(
@@ -727,7 +763,7 @@ struct WorkbookImportReviewView: View {
                             customStyle: row.customStyleText,
                             manualBPM: row.bpm
                         )
-                        await MainActor.run { rows[index].hasBeenImported = true }
+                        await MainActor.run { markImported(index, since: trackCountBefore) }
                     } else {
                         await MainActor.run {
                             failureSummary.append("\(row.title) — no file selected, skipped")
@@ -740,7 +776,7 @@ struct WorkbookImportReviewView: View {
                         customStyle: row.customStyleText,
                         manualBPM: row.bpm
                     )
-                    await MainActor.run { rows[index].hasBeenImported = true }
+                    await MainActor.run { markImported(index, since: trackCountBefore) }
                 } else if clientID.isEmpty {
                     await MainActor.run {
                         failureSummary.append("\(row.title) — no Spotify Client ID entered, skipped")
@@ -755,7 +791,7 @@ struct WorkbookImportReviewView: View {
                             customStyle: row.customStyleText,
                             manualBPM: row.bpm
                         )
-                        await MainActor.run { rows[index].hasBeenImported = true }
+                        await MainActor.run { markImported(index, since: trackCountBefore) }
                     } else {
                         await MainActor.run {
                             failureSummary.append("\(row.title) — skipped by DJ")
@@ -767,11 +803,35 @@ struct WorkbookImportReviewView: View {
             await MainActor.run {
                 currentSongIndex = indicesToImport.count
                 isImporting = false
-                if failureSummary.isEmpty {
-                    onFinished()
-                }
             }
         }
+    }
+
+    /// Records which track a row became. Imports append exactly one track on success, so a
+    /// count that didn't grow means the import silently failed and there's nothing to link.
+    private func markImported(_ index: Int, since trackCountBefore: Int) {
+        rows[index].hasBeenImported = true
+        if player.tracks.count > trackCountBefore {
+            rows[index].importedTrackID = player.tracks.last?.id
+        }
+    }
+
+    /// What compliance measures each imported row against, keyed by row id. Local files
+    /// report their decoded length and Spotify reports `duration_ms`, so length is the real
+    /// audio rather than whatever the workbook's Length column claims — and any trim or
+    /// tempo change the DJ made above is already baked in.
+    private var importedMetrics: [UUID: ImportedSongMetrics] {
+        var metrics: [UUID: ImportedSongMetrics] = [:]
+        for row in rows {
+            guard let trackID = row.importedTrackID,
+                  let track = player.tracks.first(where: { $0.id == trackID })
+            else { continue }
+            metrics[row.id] = ImportedSongMetrics(
+                playingMinutes: track.effectiveDuration / 60.0,
+                speedMultiplier: track.speedMultiplier
+            )
+        }
+        return metrics
     }
 
     private func pickLocalFile(for row: WorkbookImportRow) async -> URL? {
@@ -925,9 +985,13 @@ struct WorkbookImportReviewView: View {
 
 private struct WorkbookRowEditor: View {
     @Binding var row: WorkbookImportRow
+    @ObservedObject var player: PlayerController
     var isActive: Bool
 
     @State private var isShowingStylePicker = false
+    @State private var isShowingSongEditor = false
+    /// Artwork for a row matched to a bundled Popular Edit, so it's visible before import.
+    @State private var bundledArtwork: NSImage? = nil
 
     private var needsSpotifyMatch: Bool {
         !row.isLocal && row.matchedPopularEdit == nil
@@ -943,6 +1007,14 @@ private struct WorkbookRowEditor: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isActive ? Color(hex: "#142844") : Color.clear)
+        .task(id: row.matchedPopularEdit?.id) {
+            guard let edit = row.matchedPopularEdit else {
+                bundledArtwork = nil
+                return
+            }
+            // `load` returns the cached image immediately when there is one.
+            bundledArtwork = await PopularEditArtwork.load(for: edit)
+        }
     }
 
     private var mainRow: some View {
@@ -952,11 +1024,8 @@ private struct WorkbookRowEditor: View {
                 .foregroundColor(Color(hex: "#71717a"))
                 .frame(width: workbookOrderColumnWidth, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                titleField
-                artistField
-            }
-            .frame(width: workbookSongColumnWidth, alignment: .leading)
+            songCell
+                .frame(width: workbookSongColumnWidth, alignment: .leading)
 
             Group {
                 if let edit = row.matchedPopularEdit {
@@ -994,101 +1063,194 @@ private struct WorkbookRowEditor: View {
             bpmField
                 .frame(width: workbookBPMColumnWidth, alignment: .leading)
 
+            tempoCell
+                .frame(width: workbookTempoColumnWidth, alignment: .leading)
+
+            lengthCell
+                .frame(width: workbookLengthColumnWidth, alignment: .leading)
+
+            Button("Edit") { isShowingSongEditor = true }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .pointingHandCursor()
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
+        .sheet(isPresented: $isShowingSongEditor) {
+            WorkbookSongEditorSheet(row: $row, player: player) {
+                isShowingSongEditor = false
+            }
+        }
+    }
+
+    /// Cover art (once imported) beside the title and artist. Long titles truncate rather
+    /// than pushing the rest of the row out of alignment — the full text is in the tooltip
+    /// and can be edited in the song editor.
+    private var songCell: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let artwork = importedArtwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Color(hex: "#18181b")
+                        Image(systemName: "music.note")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hex: "#52525b"))
+                    }
+                }
+            }
+            .frame(width: 34, height: 34)
+            .cornerRadius(4)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(row.title)
+                Text(row.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(row.artist)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder
     private var spotifyMatchBar: some View {
-        HStack(spacing: 10) {
-            Spacer().frame(width: workbookOrderColumnWidth + 12)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                Spacer().frame(width: workbookOrderColumnWidth + 12)
+                Text("Importing from Spotify:")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                Spacer()
+            }
 
-            Group {
-                if let match = row.spotifyMatch {
-                    if let artwork = match.artwork {
-                        Image(nsImage: artwork)
-                            .resizable()
-                            .scaledToFill()
+            HStack(spacing: 10) {
+                Spacer().frame(width: workbookOrderColumnWidth + 12)
+
+                Group {
+                    if let match = row.spotifyMatch {
+                        if let artwork = match.artwork {
+                            Image(nsImage: artwork)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "music.note")
+                                .foregroundColor(Color(hex: "#71717a"))
+                        }
+                    } else if row.spotifySearchAttempted {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundColor(Color(hex: "#eab308"))
                     } else {
-                        Image(systemName: "music.note")
-                            .foregroundColor(Color(hex: "#71717a"))
+                        Image(systemName: "hourglass")
+                            .foregroundColor(Color(hex: "#52525b"))
                     }
+                }
+                .frame(width: 30, height: 30)
+                .background(Color(hex: "#18181b"))
+                .cornerRadius(4)
+
+                if let match = row.spotifyMatch {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(match.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text(match.artist)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "#71717a"))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: 260, alignment: .leading)
+
+                    Button(action: { row.isSpotifyApproved.toggle() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: row.isSpotifyApproved ? "checkmark.circle.fill" : "circle")
+                            Text(row.isSpotifyApproved ? "Import Confirmed" : "Confirm Import")
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(row.isSpotifyApproved ? .white : Color(hex: "#3478f6"))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(row.isSpotifyApproved ? Color(hex: "#3478f6") : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color(hex: "#3478f6"), lineWidth: 1)
+                    )
+                    .cornerRadius(5)
+                    .pointingHandCursor()
                 } else if row.spotifySearchAttempted {
-                    Image(systemName: "questionmark.circle")
+                    Text("No match found — fix the title/artist under Edit, then click \"Find Spotify Matches\" again")
+                        .font(.system(size: 11))
                         .foregroundColor(Color(hex: "#eab308"))
                 } else {
-                    Image(systemName: "hourglass")
+                    Text("Not searched yet")
+                        .font(.system(size: 11))
                         .foregroundColor(Color(hex: "#52525b"))
                 }
+
+                Spacer()
             }
-            .frame(width: 30, height: 30)
-            .background(Color(hex: "#18181b"))
-            .cornerRadius(4)
-
-            if let match = row.spotifyMatch {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(match.title)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                    Text(match.artist)
-                        .font(.system(size: 10))
-                        .foregroundColor(Color(hex: "#71717a"))
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: 260, alignment: .leading)
-
-                Button(action: { row.isSpotifyApproved.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: row.isSpotifyApproved ? "checkmark.circle.fill" : "circle")
-                        Text(row.isSpotifyApproved ? "Approved" : "Approve")
-                    }
-                    .font(.system(size: 11, weight: .bold))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(row.isSpotifyApproved ? .white : Color(hex: "#3478f6"))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(row.isSpotifyApproved ? Color(hex: "#3478f6") : Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color(hex: "#3478f6"), lineWidth: 1)
-                )
-                .cornerRadius(5)
-                .pointingHandCursor()
-            } else if row.spotifySearchAttempted {
-                Text("No match found — edit the title/artist above and click \"Find Spotify Matches\" again")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(hex: "#eab308"))
-            } else {
-                Text("Not searched yet")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(hex: "#52525b"))
-            }
-
-            Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
-    }
-
-    private var titleField: some View {
-        TextField("Title", text: Binding(get: { row.title }, set: { row.title = $0 }))
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 13, weight: .medium))
-    }
-
-    private var artistField: some View {
-        TextField("Artist", text: Binding(get: { row.artist }, set: { row.artist = $0 }))
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 11))
     }
 
     private var bpmField: some View {
         TextField("BPM", text: Binding(get: { row.bpm }, set: { row.bpm = $0 }))
             .textFieldStyle(.roundedBorder)
             .font(.system(size: 12))
+    }
+
+    // MARK: Length & tempo readouts
+
+    private var importedTrack: Track? {
+        guard let trackID = row.importedTrackID else { return nil }
+        return player.tracks.first { $0.id == trackID }
+    }
+
+    private var importedArtwork: NSImage? {
+        importedTrack?.artwork ?? row.spotifyMatch?.artwork ?? bundledArtwork
+    }
+
+    /// Shown as a percentage of normal speed, so an untouched song reads 100%.
+    private var tempoCell: some View {
+        Text(String(format: "%g%%", 100 + (importedTrack?.tempoPercentage ?? 0)))
+            .font(.system(size: 12))
+            .foregroundColor(importedTrack == nil ? Color(hex: "#52525b") : .white)
+    }
+
+    private var lengthCell: some View {
+        Group {
+            if let track = importedTrack {
+                Text(Self.formatDuration(track.effectiveDuration))
+                    .foregroundColor(.white)
+            } else {
+                Text(row.lengthText.isEmpty ? "—" : row.lengthText)
+                    .foregroundColor(Color(hex: "#52525b"))
+                    .help("Workbook length — import the song to measure the real one")
+            }
+        }
+        .font(.system(size: 12))
+    }
+
+    static func formatDuration(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private var stylePlaceholder: String {
@@ -1116,5 +1278,331 @@ private struct WorkbookRowEditor: View {
         )
         let formatted = previewTrack.formattedStylesDisplay
         return formatted == "—" ? "" : formatted
+    }
+}
+
+// MARK: - Song Editor
+
+/// Per-song editor for the workbook review table — the same fields the main player's
+/// metadata editor exposes (cover art, title, artist, start/end trim, tempo), scoped to a
+/// single workbook row. Title and artist always edit the row (they drive Spotify matching);
+/// everything else needs the imported track, so it stays disabled until the song is in.
+struct WorkbookSongEditorSheet: View {
+    @Binding var row: WorkbookImportRow
+    @ObservedObject var player: PlayerController
+    var onDismiss: () -> Void
+
+    @State private var title: String = ""
+    @State private var artist: String = ""
+    @State private var startMinutes: String = "0"
+    @State private var startSeconds: String = "00"
+    @State private var endMinutes: String = "0"
+    @State private var endSeconds: String = "00"
+    /// Offset from normal speed, matching `Track.tempoPercentage` (0 = untouched).
+    @State private var tempoOffset: Double = 0
+    @State private var isEditingPercentText = false
+    @State private var percentTextInput = ""
+    @State private var isEditingBPMText = false
+    @State private var bpmTextInput = ""
+    @State private var artwork: NSImage? = nil
+    @State private var didChooseArtwork = false
+
+    private var trackIndex: Int? {
+        guard let trackID = row.importedTrackID else { return nil }
+        return player.tracks.firstIndex { $0.id == trackID }
+    }
+
+    private var isImported: Bool { trackIndex != nil }
+
+    private var canRetime: Bool {
+        guard let index = trackIndex else { return false }
+        return player.tracks[index].source == .local
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Edit Song")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .padding(16)
+
+            Divider().background(Color(hex: "#242429"))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    artworkWell
+
+                    labelled("SONG TITLE") {
+                        TextField("Title", text: $title)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    labelled("ARTIST NAME") {
+                        TextField("Artist", text: $artist)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    if !isImported {
+                        Text("Import the song to trim it or change its tempo.")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#71717a"))
+                    }
+
+                    Divider().background(Color(hex: "#242429"))
+
+                    labelled("START TIMESTAMP") {
+                        timestampRow(minutes: $startMinutes, seconds: $startSeconds)
+                    }
+                    .opacity(isImported ? 1 : 0.4)
+
+                    labelled("END TIMESTAMP") {
+                        timestampRow(minutes: $endMinutes, seconds: $endSeconds)
+                    }
+                    .opacity(isImported ? 1 : 0.4)
+
+                    tempoSection
+                        .opacity(canRetime ? 1 : 0.4)
+
+                    if isImported, !canRetime {
+                        Text("Tempo can't be changed on Spotify playback.")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#71717a"))
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider().background(Color(hex: "#242429"))
+
+            HStack {
+                Button("Cancel", action: onDismiss)
+                    .buttonStyle(.bordered)
+                    .pointingHandCursor()
+                Spacer()
+                Button("Save", action: save)
+                    .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
+            }
+            .padding(16)
+        }
+        .frame(width: 420, height: 560)
+        .background(Color(hex: "#0e0e10"))
+        .onAppear(perform: load)
+    }
+
+    /// Mirrors the main player's tempo control: a slider you can drive either by percentage
+    /// or by target BPM, whichever the DJ is thinking in.
+    private var tempoSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("TEMPO")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.gray)
+
+                Spacer()
+
+                if isEditingPercentText {
+                    TextField("100", text: $percentTextInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .font(.system(size: 11, weight: .bold))
+                        .onSubmit(commitPercentText)
+                        .onExitCommand { isEditingPercentText = false }
+                } else {
+                    Text(String(format: "%.1f%%", 100 + tempoOffset))
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(tempoOffset == 0 ? .gray : .blue)
+                        .help("Click to type a percentage")
+                        .onTapGesture {
+                            percentTextInput = String(format: "%.1f", 100 + tempoOffset)
+                            isEditingPercentText = true
+                        }
+                }
+
+                if isEditingBPMText {
+                    TextField("BPM", text: $bpmTextInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .font(.system(size: 11, weight: .bold))
+                        .onSubmit(commitBPMText)
+                        .onExitCommand { isEditingBPMText = false }
+                } else if let effective = effectiveBPM {
+                    Text("\(Int(effective.rounded())) BPM")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.blue)
+                        .help("Click to type a target BPM")
+                        .onTapGesture {
+                            bpmTextInput = String(Int(effective.rounded()))
+                            isEditingBPMText = true
+                        }
+                }
+            }
+
+            TicklessSlider(
+                value: $tempoOffset,
+                range: -25...25,
+                step: tempoSliderStep,
+                onEditingChanged: { _ in }
+            )
+            .accentColor(.blue)
+            .disabled(!canRetime)
+
+            HStack {
+                Text("Slower")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+                Spacer()
+                Button("Reset") { tempoOffset = 0 }
+                    .font(.system(size: 9))
+                    .buttonStyle(.plain)
+                    .pointingHandCursor()
+                Spacer()
+                Text("Faster")
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+            }
+        }
+    }
+
+    /// The row's workbook BPM is the base the slider scales.
+    private var baseBPM: Double? {
+        guard let value = Double(row.bpm.trimmingCharacters(in: .whitespacesAndNewlines)), value > 0 else { return nil }
+        return value
+    }
+
+    private var effectiveBPM: Double? {
+        baseBPM.map { $0 * (1 + tempoOffset / 100) }
+    }
+
+    /// Whole-BPM steps when there's a base BPM to snap to, else the default 0.5%.
+    private var tempoSliderStep: Double {
+        guard let base = baseBPM, base > 0 else { return 0.5 }
+        return max(0.02, 100.0 / base)
+    }
+
+    private func commitPercentText() {
+        if let typed = Double(percentTextInput.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespaces)) {
+            tempoOffset = max(-25, min(25, typed - 100))
+        }
+        isEditingPercentText = false
+    }
+
+    private func commitBPMText() {
+        if let target = Double(bpmTextInput.trimmingCharacters(in: .whitespaces)),
+           let base = baseBPM, base > 0, target > 0 {
+            tempoOffset = max(-25, min(25, (target / base - 1) * 100))
+        }
+        isEditingBPMText = false
+    }
+
+    private var artworkWell: some View {
+        VStack(spacing: 6) {
+            Group {
+                if let artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Color(hex: "#18181b")
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 28))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .frame(width: 110, height: 110)
+            .cornerRadius(8)
+            .clipped()
+            .onTapGesture { if isImported { importCoverArt() } }
+            .pointingHandCursor()
+
+            Text(isImported ? "Click the image to change the cover art" : "Cover art is available once the song is imported")
+                .font(.system(size: 10))
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity)
+        .opacity(isImported ? 1 : 0.5)
+    }
+
+    private func labelled<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.gray)
+            content()
+        }
+    }
+
+    private func timestampRow(minutes: Binding<String>, seconds: Binding<String>) -> some View {
+        HStack(spacing: 6) {
+            TextField("Min", text: minutes)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 50)
+            Text(":").font(.system(size: 12, weight: .bold))
+            TextField("Sec", text: seconds)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 60)
+        }
+        .disabled(!isImported)
+    }
+
+    private func load() {
+        title = row.title
+        artist = row.artist
+
+        guard let index = trackIndex else { return }
+        let track = player.tracks[index]
+        artwork = track.artwork
+        tempoOffset = track.tempoPercentage
+
+        let start = Int(track.startTime.rounded())
+        startMinutes = "\(start / 60)"
+        startSeconds = String(format: "%02d", start % 60)
+
+        let end = Int((track.endTime ?? track.duration).rounded())
+        endMinutes = "\(end / 60)"
+        endSeconds = String(format: "%02d", end % 60)
+    }
+
+    private func save() {
+        row.title = title
+        row.artist = artist
+
+        if let index = trackIndex {
+            var track = player.tracks[index]
+            track.title = title
+            track.artist = artist
+            track.artwork = artwork
+            if didChooseArtwork { track.hasCustomArtwork = true }
+
+            let start = (Double(startMinutes) ?? 0) * 60 + (Double(startSeconds) ?? 0)
+            let end = (Double(endMinutes) ?? 0) * 60 + (Double(endSeconds) ?? 0)
+            track.startTime = max(0, min(start, track.duration))
+            track.endTime = (end > track.startTime && end < track.duration) ? end : nil
+
+            if track.source == .local {
+                track.tempoPercentage = tempoOffset
+            }
+
+            player.tracks[index] = track
+            if player.currentIndex == index {
+                player.synchronizeActiveTrackSettings()
+            }
+            player.saveTrack(track)
+        }
+
+        onDismiss()
+    }
+
+    private func importCoverArt() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image, .png, .jpeg]
+        guard panel.runModal() == .OK, let url = panel.url, let image = NSImage(contentsOf: url) else { return }
+        artwork = image
+        didChooseArtwork = true
     }
 }

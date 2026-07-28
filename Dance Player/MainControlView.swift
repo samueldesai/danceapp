@@ -12,7 +12,8 @@ import AppKit
 
 // MARK: - WINDOW 1: Main Control View
 struct ContentView: View {
-    @StateObject private var player = PlayerController()
+    @ObservedObject var player: PlayerController
+    @ObservedObject private var openRequest = ProjectFileOpenRequest.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -96,17 +97,31 @@ struct ContentView: View {
                 player.saveProjectOnCloseIfNeeded()
             }
         }
+        // A .dbdj double-clicked in Finder can arrive before this view exists, so check on
+        // appear as well as on change.
+        .onAppear(perform: consumePendingProjectFile)
+        .onReceive(openRequest.$pendingURL) { _ in consumePendingProjectFile() }
+        .sheet(isPresented: $player.isPresentingNewProject) {
+            NewProjectDialog(player: player) { player.isPresentingNewProject = false }
+        }
+        .sheet(isPresented: $player.isPresentingAdvancedSettings) {
+            AdvancedSettingsView(player: player)
+        }
+        .sheet(isPresented: $player.isPresentingSpotifyKeyEditor) {
+            SpotifyKeyEditor(player: player) { player.isPresentingSpotifyKeyEditor = false }
+        }
+    }
+
+    private func consumePendingProjectFile() {
+        guard let url = openRequest.pendingURL else { return }
+        openRequest.pendingURL = nil
+        player.openProjectFile(at: url)
     }
 }
 
 struct ProjectWelcomeView: View {
     @ObservedObject var player: PlayerController
-    @State private var projectName: String = ""
-    @State private var autosaveEnabled: Bool = true
-
-    private var wantsAutosave: Bool {
-        autosaveEnabled
-    }
+    @State private var recentProjects: [ProjectLocations.RecentProject] = []
 
     var body: some View {
         ZStack {
@@ -121,7 +136,7 @@ struct ProjectWelcomeView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: 28) {
                 Spacer()
 
                 VStack(spacing: 18) {
@@ -133,74 +148,30 @@ struct ProjectWelcomeView: View {
                             .font(.system(size: 40, weight: .black, design: .rounded))
                             .foregroundColor(.white)
 
-                        Text("Create or import a project package")
+                        Text("Create or open a project package")
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(Color(hex: "#a1a1aa"))
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    TextField("Project Name", text: $projectName)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 15, weight: .medium))
-                        .onSubmit {
-                            player.beginNewProjectFlow(
-                                named: projectName,
-                                autosaveRequested: wantsAutosave
-                            )
-                        }
-                        .submitLabel(.done)
-
-                    Toggle("Save project", isOn: $autosaveEnabled)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .pointingHandCursor()
-
-                    Text("When enabled, your set will autosave for future use.")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(hex: "#71717a"))
-                }
-                .padding(20)
-                .frame(maxWidth: 520)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color(hex: "#111114").opacity(0.88))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                        )
-                )
-
                 HStack(spacing: 14) {
-                    Button("Create New Project") {
-                        player.beginNewProjectFlow(
-                            named: projectName,
-                            autosaveRequested: wantsAutosave
-                        )
+                    Button("Create Project") {
+                        player.isPresentingNewProject = true
                     }
                     .buttonStyle(.borderedProminent)
                     .pointingHandCursor()
 
-                    Button("Import Existing Project") {
-                        player.beginImportProjectFlow(
-                            named: projectName,
-                            autosaveRequested: wantsAutosave
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .pointingHandCursor()
-
-                    Button("Import from DJ Workbook") {
-                        player.beginWorkbookImportFlow(
-                            named: projectName,
-                            autosaveRequested: wantsAutosave
-                        )
+                    Button("Open Existing Project") {
+                        player.beginImportProjectFlow(named: "", autosaveRequested: true)
                     }
                     .buttonStyle(.bordered)
                     .pointingHandCursor()
                 }
                 .controlSize(.large)
+
+                if !recentProjects.isEmpty {
+                    recentProjectsList
+                }
 
                 Spacer()
             }
@@ -219,6 +190,210 @@ struct ProjectWelcomeView: View {
                 }
             }
         }
+        .onAppear { recentProjects = ProjectLocations.recentProjects() }
+    }
+
+    private var recentProjectsList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("RECENT")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .tracking(0.6)
+                Spacer()
+                Button("Clear") {
+                    ProjectLocations.clearRecentProjects()
+                    recentProjects = []
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#71717a"))
+                .pointingHandCursor()
+            }
+
+            ForEach(recentProjects) { recent in
+                Button {
+                    guard let url = ProjectLocations.openRecent(recent) else { return }
+                    player.openProjectFile(at: url)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#3478f6"))
+                        Text(recent.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(hex: "#111114").opacity(0.9))
+                    .cornerRadius(6)
+                    .help(recent.url.path)
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+            }
+        }
+        .frame(maxWidth: 420)
+    }
+}
+
+/// Collects everything a new project needs up front — name, autosave, where it lives, and
+/// an optional Dancebreak DJ Workbook — so the welcome screen is a single choice rather
+/// than a form plus three buttons that each opened a different panel.
+struct NewProjectDialog: View {
+    @ObservedObject var player: PlayerController
+    var onDismiss: () -> Void
+
+    @State private var projectName: String = ""
+    /// Chosen by the DJ via Browse. Autosave is always on, so this is simply where the
+    /// project's .dbdj lives.
+    @State private var projectFolderURL: URL? = nil
+    @State private var importFromWorkbook: Bool = false
+    @State private var workbookURL: URL? = nil
+
+    private var canCreate: Bool {
+        guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        if projectFolderURL == nil { return false }
+        if importFromWorkbook, workbookURL == nil { return false }
+        return true
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("New Project")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .padding(16)
+
+            Divider().background(Color(hex: "#242429"))
+
+            VStack(alignment: .leading, spacing: 18) {
+                field("Project Name") {
+                    TextField("Untitled Project", text: $projectName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                }
+
+                field("Path") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        pathRow(
+                            url: projectFolderURL,
+                            placeholder: "No folder selected",
+                            isEnabled: true,
+                            browse: browseForFolder
+                        )
+                        Text("The project saves here as a .dbdj file and keeps itself up to date.")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#71717a"))
+                    }
+                }
+
+                Divider().background(Color(hex: "#242429"))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("OPTIONAL: IMPORT FROM DANCEBREAK DJ WORKBOOK")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Color.white)
+                        .tracking(0.5)
+
+                    Toggle("Import songs from a workbook", isOn: $importFromWorkbook)
+                        .toggleStyle(.switch)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(importFromWorkbook ? .white : Color(hex: "#52525b"))
+                        .pointingHandCursor()
+
+                    pathRow(
+                        url: workbookURL,
+                        placeholder: "No workbook selected",
+                        isEnabled: importFromWorkbook,
+                        browse: browseForWorkbook
+                    )
+                    .opacity(importFromWorkbook ? 1 : 0.4)
+                }
+            }
+            .padding(16)
+
+            Divider().background(Color(hex: "#242429"))
+
+            HStack {
+                Button("Cancel", action: onDismiss)
+                    .buttonStyle(.bordered)
+                    .pointingHandCursor()
+
+                Spacer()
+
+                Button("Create", action: create)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canCreate)
+                    .pointingHandCursor()
+            }
+            .padding(16)
+        }
+        .frame(width: 460)
+        .background(Color(hex: "#0e0e10"))
+    }
+
+    private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+            content()
+        }
+    }
+
+    private func pathRow(url: URL?, placeholder: String, isEnabled: Bool, browse: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Button("Browse…", action: browse)
+                .buttonStyle(.bordered)
+                .disabled(!isEnabled)
+                .pointingHandCursor()
+
+            Text(url?.path ?? placeholder)
+                .font(.system(size: 11))
+                .foregroundColor(url == nil ? Color(hex: "#52525b") : .white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func browseForFolder() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = projectFolderURL
+        panel.message = "Choose where the project file should be saved."
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK { projectFolderURL = panel.url }
+    }
+
+    private func browseForWorkbook() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.commaSeparatedText, UTType(filenameExtension: "xlsx")!]
+        panel.message = "Choose a Dancebreak DJ Workbook (CSV or XLSX)"
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK { workbookURL = panel.url }
+    }
+
+    private func create() {
+        guard let saveFolderURL = projectFolderURL else { return }
+
+        onDismiss()
+        player.createProject(
+            named: projectName,
+            autosaveFolder: saveFolderURL,
+            workbookURL: importFromWorkbook ? workbookURL : nil
+        )
     }
 }
 
@@ -373,47 +548,6 @@ struct PlaylistView: View {
                         lastDropHapticTrackID = nil
                     }
                 }
-            }
-            
-            // MARK: - Bottom Action Toolbar (New)
-            VStack(spacing: 0) {
-                Divider()
-                    .background(Color(hex: "#1b1b1f"))
-                
-                HStack(spacing: 12) {
-                    // IMPORT SET TEXT BUTTON
-                    Button(action: {
-                        player.importProjectPackage()
-                    }) {
-                        Text("Import Project")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color(hex: "#a3a3ac"))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .background(Color(hex: "#18181b"))
-                            .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
-                    .pointingHandCursor()
-                    
-                    // EXPORT SET TEXT BUTTON
-                    Button(action: {
-                        player.saveProjectAs()
-                    }) {
-                        Text("Save As")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color(hex: "#a3a3ac"))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .background(Color(hex: "#18181b"))
-                            .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
-                    .pointingHandCursor()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(hex: "#0c0c0e"))
             }
         }
         .background(Color(hex: "#09090b"))
@@ -1175,6 +1309,9 @@ struct MetadataEditorPanel: View {
     
     @State private var tempoPercentage: Double = 0.0
     @State private var localArtwork: NSImage? = nil
+    /// Only a deliberate pick counts as custom art — art merely loaded from the file's tags
+    /// shouldn't get duplicated into every saved project.
+    @State private var didChooseArtwork: Bool = false
     @State private var isEditingTempoText: Bool = false
     @State private var tempoTextInput: String = ""
     @State private var customTempoOverride: Double? = nil
@@ -1506,6 +1643,7 @@ struct MetadataEditorPanel: View {
                 if let imagePayload = NSImage(contentsOf: selectedURL) {
                     DispatchQueue.main.async {
                         self.localArtwork = imagePayload
+                        self.didChooseArtwork = true
                     }
                 }
             }
@@ -1528,6 +1666,7 @@ struct MetadataEditorPanel: View {
         updatedTrack.title = editableTitle
         updatedTrack.artist = editableArtist
         updatedTrack.artwork = localArtwork
+        if didChooseArtwork { updatedTrack.hasCustomArtwork = true }
         if updatedTrack.source == .local {
             updatedTrack.tempoPercentage = tempoPercentage
         }
@@ -1744,7 +1883,7 @@ struct PlaybackStatusBar: View {
                     HStack(spacing: 6) {
                         if player.isBetweenSongs {
                             MarqueeText(
-                                text: "The next song is a " + (player.currentTrack?.formattedStylesDisplay ?? "-"),
+                                text: (player.currentTrack?.nextSongLeadIn ?? "The next song is a") + " " + (player.currentTrack?.formattedStylesDisplay ?? "-"),
                                 font: .system(size: 30, weight: .bold),
                                 color: Color(hex: "#eab308"),
                                 isEnabled: !player.isImportingContent
@@ -2088,11 +2227,13 @@ struct AdvancedSettingsView: View {
                     tempoSection
                     Divider().background(Color(hex: "#242429"))
                     autoplaySection
+                    Divider().background(Color(hex: "#242429"))
+                    spotifySection
                 }
                 .padding(20)
             }
         }
-        .frame(width: 380, height: 360)
+        .frame(width: 460, height: 620)
         .background(Color(hex: "#111114"))
         .preferredColorScheme(.dark)
     }
@@ -2142,6 +2283,22 @@ struct AdvancedSettingsView: View {
             }
 
             Text("The in-between-songs screen still shows on the audience display. You can pause the countdown and it'll go straight into the next song when you press play again.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+        }
+    }
+
+    // MARK: - Spotify
+
+    private var spotifySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("SPOTIFY")
+
+            TextField("Client ID", text: $player.spotifyClientID)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+
+            Text("Needed to match workbook songs to Spotify and to play Spotify tracks.")
                 .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#52525b"))
         }

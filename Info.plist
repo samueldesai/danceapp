@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Declares .dbdj as a type this app owns, so Finder gives it the app's icon and
+	     double-clicking one opens Dance Player. The rest of Info.plist is still generated
+	     by Xcode (GENERATE_INFOPLIST_FILE) and merged into this file at build time. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Dancebreak DJ Player File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>ProjectDocument</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>edu.stanford.dancebreak.danceplayer.project</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>edu.stanford.dancebreak.danceplayer.project</string>
+			<key>UTTypeDescription</key>
+			<string>Dancebreak DJ Player File</string>
+			<key>UTTypeIconFile</key>
+			<string>ProjectDocument</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>dbdj</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

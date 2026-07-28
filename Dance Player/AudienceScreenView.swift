@@ -70,7 +70,7 @@ struct PublicDisplayWindowView: View {
                                 Spacer()
                                 
                                 VStack(spacing: 6) {
-                                    Text("The next song is a")
+                                    Text(player.currentTrack?.nextSongLeadIn ?? "The next song is a")
                                         .font(.system(size: 24, weight: .semibold))
                                         .foregroundColor(Color(hex: "#71717a"))
                                     Text(player.currentTrack?.formattedStylesDisplay.isEmpty == false ? player.currentTrack!.formattedStylesDisplay.uppercased() : "—")

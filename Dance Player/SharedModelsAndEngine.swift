@@ -48,9 +48,16 @@ struct Track: Identifiable, Equatable {
     var spotifyURI: String? = nil
     var spotifyExternalURL: URL? = nil
 
+    /// True once the DJ picks their own cover art. Artwork that merely came from the audio
+    /// file's own tags is re-read on import instead of being stored in the project.
+    var hasCustomArtwork: Bool = false
+
     var measuredLoudness: Double? = nil
     var gainCorrectiondB: Double = 0.0
-    
+    // Bumped when the analysis algorithm changes, so values cached by an older
+    // (less accurate) version get re-measured instead of trusted forever.
+    var loudnessAnalysisVersion: Int = 0
+
     // New Audio Modification Properties
     var startTime: TimeInterval = 0.0
     var endTime: TimeInterval? = nil
@@ -102,6 +109,22 @@ struct Track: Identifiable, Equatable {
 
         return result.isEmpty ? "—" : result
     }
+
+    /// These are specific named mixes rather than general dance styles, so they announce as
+    /// "the next song is the Romany Polka" — "a Romany Polka" reads as one of many.
+    private static let stylesTakingDefiniteArticle: Set<String> = [
+        "Bohemian National Polka",
+        "Barbie Line Dance",
+        "Romany Polka",
+        "'T Smidje Mixer",
+        "Dawn Mazurka",
+    ]
+
+    var nextSongLeadIn: String {
+        Track.stylesTakingDefiniteArticle.contains(formattedStylesDisplay)
+            ? "The next song is the"
+            : "The next song is a"
+    }
 }
 
 struct PersistedTrack: Codable {
@@ -124,6 +147,8 @@ struct PersistedTrack: Codable {
 
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
+    var loudnessAnalysisVersion: Int? = nil
+    var hasCustomArtwork: Bool? = nil
     var artworkData: Data? = nil
 }
 
@@ -201,20 +226,56 @@ struct ProjectPackageOrderExport: Codable {
 }
 
 private extension NSImage {
+    /// Cover art is never shown larger than a few hundred points, so a project stores a
+    /// downscaled JPEG rather than a full-size PNG — a 1000x1000 cover goes from well over
+    /// a megabyte to a few tens of kilobytes, times every track in the set.
     var projectPackageData: Data? {
         guard let tiffData = tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
+              let source = NSBitmapImageRep(data: tiffData) else {
             return nil
         }
 
-        return bitmap.representation(using: .png, properties: [:])
+        let maximumDimension = 800
+        let longestEdge = max(source.pixelsWide, source.pixelsHigh)
+        guard longestEdge > maximumDimension else {
+            return source.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+        }
+
+        let scale = Double(maximumDimension) / Double(longestEdge)
+        let targetSize = NSSize(
+            width: (Double(source.pixelsWide) * scale).rounded(),
+            height: (Double(source.pixelsHigh) * scale).rounded()
+        )
+
+        guard let resized = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(targetSize.width),
+            pixelsHigh: Int(targetSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return source.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+        }
+
+        resized.size = targetSize
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resized)
+        source.draw(in: NSRect(origin: .zero, size: targetSize))
+        NSGraphicsContext.restoreGraphicsState()
+
+        return resized.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
     }
 }
 
 private extension Track {
 
     var persistableArtworkData: Data? {
-        guard source == .local else { return nil }
+        guard source == .local, hasCustomArtwork else { return nil }
         return artwork?.projectPackageData
     }
 }
@@ -235,12 +296,22 @@ struct ProjectPackageTrack: Codable {
     var manualBPM: String? = nil
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
+    var loudnessAnalysisVersion: Int? = nil
     var duration: Double
     var localFileName: String?
+    /// Set instead of `localFileName` when the audio ships inside the app (a Popular Edit),
+    /// so a project doesn't carry a second copy of a file every install already has.
+    var bundledFileName: String?
+    var hasCustomArtwork: Bool?
     var artworkFileName: String?
     var artworkData: Data?
 
-    init(from track: Track, localFileName: String? = nil, artworkFileName: String? = nil) {
+    init(
+        from track: Track,
+        localFileName: String? = nil,
+        bundledFileName: String? = nil,
+        artworkFileName: String? = nil
+    ) {
         self.songHash = track.songHash
         self.source = track.source
         self.isSkipped = track.isSkipped
@@ -256,8 +327,11 @@ struct ProjectPackageTrack: Codable {
         self.manualBPM = track.manualBPM
         self.measuredLoudness = track.measuredLoudness
         self.gainCorrectiondB = track.gainCorrectiondB
+        self.loudnessAnalysisVersion = track.loudnessAnalysisVersion
         self.duration = track.duration
         self.localFileName = localFileName
+        self.bundledFileName = bundledFileName
+        self.hasCustomArtwork = track.hasCustomArtwork
         self.artworkFileName = track.source == .local ? artworkFileName : nil
         self.artworkData = (track.source == .local && artworkFileName == nil) ? track.persistableArtworkData : nil
     }
@@ -279,6 +353,8 @@ struct ProjectPackageTrack: Codable {
             manualBPM: manualBPM,
             measuredLoudness: measuredLoudness,
             gainCorrectiondB: gainCorrectiondB,
+            loudnessAnalysisVersion: loudnessAnalysisVersion,
+            hasCustomArtwork: hasCustomArtwork,
             artworkData: artworkData
         )
     }
@@ -429,12 +505,42 @@ enum SpotifyImportKind {
     case playlist
 }
 
+/// Cover art for the Popular Edits that ship with the app, read from each file's own tags.
+/// Cached so the workbook import table can show a matched row's artwork before the song has
+/// been imported, without re-reading the file for every redraw.
+@MainActor
+enum PopularEditArtwork {
+    private static var cache: [String: NSImage] = [:]
+
+    static func cached(for edit: PopularEdit) -> NSImage? { cache[edit.id] }
+
+    static func load(for edit: PopularEdit) async -> NSImage? {
+        if let image = cache[edit.id] { return image }
+        guard let url = edit.bundledURL else { return nil }
+
+        let asset = AVURLAsset(url: url)
+        guard let metadata = try? await asset.load(.commonMetadata) else { return nil }
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            if let data = try? await item.load(.dataValue), let image = NSImage(data: data) {
+                cache[edit.id] = image
+                return image
+            }
+        }
+        return nil
+    }
+}
+
 struct PopularEdit: Identifiable, CaseIterable {
     let id: String
     let displayName: String
     let resourceName: String
     let fileExtension: String
     let danceStyles: Set<String>
+
+    var bundledURL: URL? {
+        Bundle.main.url(forResource: resourceName, withExtension: fileExtension, subdirectory: "audio files")
+            ?? Bundle.main.url(forResource: resourceName, withExtension: fileExtension)
+    }
 
     static let allCases: [PopularEdit] = [
         PopularEdit(
@@ -1128,11 +1234,82 @@ extension Data {
     }
 }
 
+/// Direct-form-I biquad, used for the ITU-R BS.1770 K-weighting filter chain.
+private struct Biquad {
+    let b0, b1, b2, a1, a2: Double
+    private var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+
+    mutating func process(_ x: Double) -> Double {
+        let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2 = x1; x1 = x
+        y2 = y1; y1 = y
+        return y
+    }
+
+    /// Stage 1: high-shelf approximating the acoustic effect of the head.
+    /// Derived from the analog prototype so it's correct at any sample rate; at 48kHz it
+    /// reproduces the coefficients published in BS.1770 exactly.
+    static func kWeightingShelf(sampleRate: Double) -> Biquad {
+        let gain = 3.999843853973347, q = 0.7071752369554196, cutoff = 1681.974450955533
+        let k = tan(.pi * cutoff / sampleRate)
+        let vh = pow(10.0, gain / 20.0)
+        let vb = pow(vh, 0.4996667741545416)
+        let a0 = 1.0 + k / q + k * k
+        return Biquad(
+            b0: (vh + vb * k / q + k * k) / a0,
+            b1: 2.0 * (k * k - vh) / a0,
+            b2: (vh - vb * k / q + k * k) / a0,
+            a1: 2.0 * (k * k - 1.0) / a0,
+            a2: (1.0 - k / q + k * k) / a0
+        )
+    }
+
+    /// Stage 2: RLB high-pass.
+    static func kWeightingHighPass(sampleRate: Double) -> Biquad {
+        let q = 0.5003270373238773, cutoff = 38.13547087602444
+        let k = tan(.pi * cutoff / sampleRate)
+        let a0 = 1.0 + k / q + k * k
+        return Biquad(
+            b0: 1.0, b1: -2.0, b2: 1.0,
+            a1: 2.0 * (k * k - 1.0) / a0,
+            a2: (1.0 - k / q + k * k) / a0
+        )
+    }
+}
+
 // MARK: - Audio Engine & Controller
 class PlayerController: ObservableObject {
+    /// Bump when `measureLoudness` changes, to re-measure tracks cached by an older version.
+    static let loudnessAnalysisVersion = 1
+
+    static func audioMix(forGaindB gaindB: Double) -> AVMutableAudioMix {
+        let mix = AVMutableAudioMix()
+        let parameters = AVMutableAudioMixInputParameters()
+        parameters.setVolume(pow(10.0, Float(gaindB) / 20.0), at: .zero)
+        mix.inputParameters = [parameters]
+        return mix
+    }
+
+    /// Spotify API key, shared by the workbook importer and the settings UI.
+    @Published var spotifyClientID: String = UserDefaults.standard.string(forKey: "spotifyClientID") ?? "" {
+        didSet { UserDefaults.standard.set(spotifyClientID, forKey: "spotifyClientID") }
+    }
+
+    /// Menu-bar driven presentation, so File/Settings items work from anywhere in the app.
+    @Published var isPresentingNewProject = false
+    @Published var isPresentingAdvancedSettings = false
+    @Published var isPresentingSpotifyKeyEditor = false
+    @Published var isDisplayWindowOpen = false
+
     @Published var projectName: String = "Dance Player Project"
     @Published var projectAutosaveParentURL: URL? = nil
     @Published var projectFolderURL: URL? = nil
+    /// Destination `.dbdj` for a file-backed project — saves write here instead of leaving a
+    /// project folder behind.
+    @Published var projectFileURL: URL? = nil
+    /// Unpacked working copy backing `projectFileURL`.
+    private var projectWorkingFolderURL: URL? = nil
+    private let projectSaveQueue = DispatchQueue(label: "dance-player.project-save", qos: .utility)
     @Published var autosaveEnabled = false
     @Published var hasLoadedProject = false
     @Published var showThankYouScreen = false
@@ -1151,7 +1328,11 @@ class PlayerController: ObservableObject {
     }
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
-    @Published var targetLoudnessLUFS: Double = -16.0
+    /// Set below the quietest material we ship (Bohemian National Polka measures ~-20 LUFS)
+    /// so balancing is done by attenuating the loud tracks. Aiming higher would need those
+    /// quiet tracks boosted past their peak headroom, which the clipping guard won't allow —
+    /// they'd stay noticeably soft next to everything else.
+    @Published var targetLoudnessLUFS: Double = -20.0
     @Published var isBatchProcessingLoudness = false
     @Published var loudnessBatchProgress: Double = 0.0
     
@@ -1416,8 +1597,42 @@ class PlayerController: ObservableObject {
             return projectFolderURL
         }
 
+        // A file-backed (.dbdj) project keeps its unpacked working copy inside our own
+        // storage; the folder the DJ chose only holds the .dbdj itself.
+        if let projectWorkingFolderURL {
+            return projectWorkingFolderURL
+        }
+
         guard let parent = projectAutosaveParentURL else { return nil }
         return parent.appendingPathComponent(safeProjectName, isDirectory: true)
+    }
+
+    /// Container for the unpacked working copies of file-backed projects. Tracks reference
+    /// their audio by URL, so this has to be durable storage rather than a temp directory.
+    private var projectsWorkingParentURL: URL {
+        let fileManager = FileManager.default
+        let folder = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("DancePlayer", isDirectory: true)
+            .appendingPathComponent("Projects", isDirectory: true)
+        try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    private func freshWorkingFolderURL(named name: String) -> URL {
+        projectsWorkingParentURL
+            .appendingPathComponent("\(sanitizeProjectName(name))-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Points the project at a single `.dbdj` inside `folderURL` instead of a project folder.
+    private func adoptProjectFile(named name: String, savingInto folderURL: URL) {
+        let sanitizedName = sanitizeProjectName(name)
+        projectFileURL = folderURL
+            .appendingPathComponent("\(sanitizedName).\(Self.projectFileExtension)")
+        projectWorkingFolderURL = freshWorkingFolderURL(named: sanitizedName)
+        projectAutosaveParentURL = nil
+        projectFolderURL = nil
+        autosaveEnabled = true
+        if let projectFileURL { ProjectLocations.noteRecentProject(projectFileURL) }
     }
 
     private var projectFilesFolderURL: URL? {
@@ -1443,21 +1658,46 @@ class PlayerController: ObservableObject {
     private func saveCurrentProjectPackage() {
         guard hasLoadedProject, autosaveEnabled, let destinationDirectoryURL = projectRootFolderURL else { return }
         let projectName = safeProjectName
+        let projectFileDestination = projectFileURL
 
         // The actual work here is a full pass of file copies + JSON encoding over every
         // track in the library — background it so routine autosaves (fired after every
-        // song add/edit) never block the UI thread.
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        // song add/edit) never block the UI thread. Serialized, because two overlapping
+        // saves writing the same .dbdj would leave a torn file.
+        projectSaveQueue.async { [weak self] in
             guard let self else { return }
             do {
-                _ = try self.exportProjectPackage(
+                let projectFolderURL = try self.exportProjectPackage(
                     toProjectFolder: destinationDirectoryURL,
                     projectName: projectName,
                     overwriteExisting: true
                 )
+
+                // File-backed project: the folder above is only our working copy, so pack it
+                // into the .dbdj the DJ actually sees.
+                if let projectFileDestination {
+                    try self.writeProjectFile(from: projectFolderURL, to: projectFileDestination)
+                }
             } catch {
                 print("Failed autosaving project package: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Zips to a sibling temp file and swaps it in, so quitting mid-save can't leave a
+    /// half-written `.dbdj` where a working project used to be.
+    private func writeProjectFile(from projectFolderURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        let scratchURL = destinationURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp")
+
+        try ZipArchive.zip(contentsOf: projectFolderURL, to: scratchURL)
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: scratchURL)
+        } else {
+            try fileManager.moveItem(at: scratchURL, to: destinationURL)
         }
     }
 
@@ -1561,6 +1801,64 @@ class PlayerController: ObservableObject {
         return nil
     }
 
+    /// Cover art embedded in an audio file's own metadata.
+    private func embeddedArtwork(for url: URL) async -> NSImage? {
+        let asset = AVURLAsset(url: url)
+        guard let metadata = try? await asset.load(.commonMetadata) else { return nil }
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            if let data = try? await item.load(.dataValue), let image = NSImage(data: data) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    /// True when `url` lives inside the app bundle — i.e. a shipped Popular Edit.
+    private func isBundledResource(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(Bundle.main.bundleURL.standardizedFileURL.path)
+    }
+
+    /// Content hashes of the Popular Edits shipped in the app, mapped to their bundled file
+    /// name. Keyed by hash rather than URL because importing a track used to copy it into the
+    /// project and repoint `track.url` at the copy — those projects still need recognising.
+    private lazy var bundledPopularEditFileNames: [String: String] = {
+        var result: [String: String] = [:]
+        for edit in PopularEdit.allCases {
+            guard let url = popularEditResourceURL(for: edit) else { continue }
+            result[hashAudioFile(url)] = url.lastPathComponent
+        }
+        return result
+    }()
+
+    /// The bundled file backing this track, if the app already ships its audio.
+    private func bundledFileName(for track: Track) -> String? {
+        if let fileName = bundledPopularEditFileNames[track.songHash] { return fileName }
+        if track.url.isFileURL, isBundledResource(track.url) { return track.url.lastPathComponent }
+        return nil
+    }
+
+    /// A track's audio comes either from the app bundle (Popular Edits, referenced by name)
+    /// or from the project's own `files/` folder.
+    private func resolvedAudioURL(for packageTrack: ProjectPackageTrack, filesFolderURL: URL) -> URL? {
+        if let bundledFileName = packageTrack.bundledFileName {
+            let name = (bundledFileName as NSString).deletingPathExtension
+            let fileExtension = (bundledFileName as NSString).pathExtension
+            if let bundledURL = Bundle.main.url(
+                forResource: name,
+                withExtension: fileExtension,
+                subdirectory: "audio files"
+            ) ?? Bundle.main.url(forResource: name, withExtension: fileExtension) {
+                return bundledURL
+            }
+            // Fall through: an older build may not ship this edit, but the project might
+            // still carry a copy of it.
+        }
+
+        guard let fileName = packageTrack.localFileName else { return nil }
+        let fileURL = filesFolderURL.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
+    }
+
     private func projectArtworkImage(
         from packageTrack: ProjectPackageTrack,
         artworkFolderURL: URL
@@ -1606,14 +1904,18 @@ class PlayerController: ObservableObject {
                 in: projectFilesFolderURL
             )
 
-            if sourceURL.standardizedFileURL != destinationAudioURL.standardizedFileURL {
-                if FileManager.default.fileExists(atPath: destinationAudioURL.path) {
-                    try FileManager.default.removeItem(at: destinationAudioURL)
+            // A Popular Edit ships inside the app, so it plays straight from the bundle
+            // rather than being copied into the project — the audio is already on every
+            // machine that can open the file.
+            if !isBundledResource(sourceURL) {
+                if sourceURL.standardizedFileURL != destinationAudioURL.standardizedFileURL {
+                    if FileManager.default.fileExists(atPath: destinationAudioURL.path) {
+                        try FileManager.default.removeItem(at: destinationAudioURL)
+                    }
+                    try FileManager.default.copyItem(at: sourceURL, to: destinationAudioURL)
                 }
-                try FileManager.default.copyItem(at: sourceURL, to: destinationAudioURL)
+                track.url = destinationAudioURL
             }
-
-            track.url = destinationAudioURL
 
             if let artwork,
                let artworkData = artwork.projectPackageData,
@@ -1774,13 +2076,14 @@ class PlayerController: ObservableObject {
         // Preserves vocal & instrumental pitch perfectly when scaling playback rate
         playerItem.audioTimePitchAlgorithm = .spectral
         
-        let linearVolume = pow(10.0, Float(track.gainCorrectiondB) / 20.0)
-        let mix = AVMutableAudioMix()
-        let parameters = AVMutableAudioMixInputParameters()
-        parameters.setVolume(min(linearVolume, 1.0), at: .zero)
-        mix.inputParameters = [parameters]
-        playerItem.audioMix = mix
-        
+        // A gain cached by an older analysis version isn't trustworthy enough to apply —
+        // play flat and re-measure, which swaps in the corrected mix once it lands.
+        if track.loudnessAnalysisVersion >= Self.loudnessAnalysisVersion {
+            playerItem.audioMix = Self.audioMix(forGaindB: track.gainCorrectiondB)
+        } else {
+            calculateLoudness(forTrackAt: index)
+        }
+
         avPlayer = AVPlayer(playerItem: playerItem)
         
         // Initialize layout constraints using custom modified length properties
@@ -1827,40 +2130,141 @@ class PlayerController: ObservableObject {
     }
     
     // MARK: - Isolated ReplayGain Target Processing
+
+    /// Gated integrated loudness (LUFS) of a track's playable region, plus its sample peak.
+    ///
+    /// Implements ITU-R BS.1770 / EBU R128: K-weighting, 400ms blocks overlapping 75%,
+    /// a -70 LUFS absolute gate and a -10 LU relative gate.
+    private func measureLoudness(of track: Track) -> (loudness: Double, peak: Float)? {
+        guard let file = try? AVAudioFile(forReading: track.url) else { return nil }
+
+        let format = file.processingFormat
+        let sampleRate = format.sampleRate
+        let channelCount = Int(format.channelCount)
+        guard sampleRate > 0, channelCount > 0, file.length > 0 else { return nil }
+
+        let firstFrame = max(0, Int64(track.startTime * sampleRate))
+        let lastFrame = min(file.length, track.endTime.map { Int64($0 * sampleRate) } ?? file.length)
+        guard lastFrame > firstFrame else { return nil }
+
+        let readCapacity: AVAudioFrameCount = 65536
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: readCapacity) else { return nil }
+
+        var shelf = [Biquad](repeating: .kWeightingShelf(sampleRate: sampleRate), count: channelCount)
+        var highPass = [Biquad](repeating: .kWeightingHighPass(sampleRate: sampleRate), count: channelCount)
+
+        // Accumulate energy in 100ms segments; a 400ms block is then any 4 consecutive
+        // segments, which gives the 75% overlap R128 asks for without buffering the file.
+        let segmentFrames = Int((sampleRate * 0.1).rounded())
+        var segmentEnergy = [[Double]](repeating: [], count: channelCount)
+        var runningEnergy = [Double](repeating: 0, count: channelCount)
+        var framesInSegment = 0
+        var peak: Float = 0
+        var frame = firstFrame
+        file.framePosition = firstFrame
+
+        while frame < lastFrame {
+            let readLength = AVAudioFrameCount(min(Int64(readCapacity), lastFrame - frame))
+            do {
+                try file.read(into: buffer, frameCount: readLength)
+            } catch {
+                break
+            }
+            guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { break }
+
+            let sampleCount = Int(buffer.frameLength)
+            for sampleIndex in 0..<sampleCount {
+                for channel in 0..<channelCount {
+                    let sample = channels[channel][sampleIndex]
+                    peak = max(peak, abs(sample))
+                    let weighted = highPass[channel].process(shelf[channel].process(Double(sample)))
+                    runningEnergy[channel] += weighted * weighted
+                }
+                framesInSegment += 1
+                if framesInSegment == segmentFrames {
+                    for channel in 0..<channelCount {
+                        segmentEnergy[channel].append(runningEnergy[channel])
+                        runningEnergy[channel] = 0
+                    }
+                    framesInSegment = 0
+                }
+            }
+            frame += Int64(sampleCount)
+        }
+
+        let segmentCount = segmentEnergy[0].count
+        guard segmentCount >= 4 else { return nil }
+
+        var blockLoudness: [Double] = []
+        for start in 0...(segmentCount - 4) {
+            // Channel weighting G is 1.0 for mono and left/right, which is all we handle.
+            var meanSquare = 0.0
+            for channel in 0..<channelCount {
+                var energy = 0.0
+                for segment in start..<(start + 4) { energy += segmentEnergy[channel][segment] }
+                meanSquare += energy / Double(4 * segmentFrames)
+            }
+            if meanSquare > 0 {
+                blockLoudness.append(-0.691 + 10.0 * log10(meanSquare))
+            }
+        }
+        guard !blockLoudness.isEmpty else { return nil }
+
+        func gatedMean(_ blocks: [Double]) -> Double {
+            let energy = blocks.reduce(0.0) { $0 + pow(10.0, ($1 + 0.691) / 10.0) } / Double(blocks.count)
+            return -0.691 + 10.0 * log10(energy)
+        }
+
+        // Gating keeps silence and quiet passages from dragging the average down, which is
+        // what makes a track with a long intro or fade-out measure as "quiet".
+        let aboveAbsoluteGate = blockLoudness.filter { $0 > -70.0 }
+        guard !aboveAbsoluteGate.isEmpty else { return nil }
+
+        let relativeGate = gatedMean(aboveAbsoluteGate) - 10.0
+        let gated = aboveAbsoluteGate.filter { $0 > relativeGate }
+        return (gatedMean(gated.isEmpty ? aboveAbsoluteGate : gated), peak)
+    }
+
+    /// Correction needed to bring `loudness` to target, limited so a boost can't clip `peak`.
+    private func gainCorrection(forLoudness loudness: Double, peak: Float) -> Double {
+        let needed = targetLoudnessLUFS - loudness
+        let peakHeadroomdB = peak > 0 ? 20.0 * log10(Double(0.98 / peak)) : 0.0
+        let maxBoostdB = min(12.0, max(0.0, peakHeadroomdB))
+        return min(max(needed, -24.0), maxBoostdB)
+    }
+
     private func calculateLoudness(forTrackAt index: Int) {
         guard tracks.indices.contains(index) else { return }
         let track = tracks[index]
-        
-        // Skip if it already has a saved loudness payload from your JSON library cache
-        if track.measuredLoudness != nil { return }
-        
+
+        // Streamed tracks have no local samples to analyze; Spotify normalizes its own playback.
+        guard track.source == .local else { return }
+
+        // Skip if the cache already holds a measurement from the current analysis version.
+        if track.measuredLoudness != nil, track.loudnessAnalysisVersion >= Self.loudnessAnalysisVersion { return }
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
-            let hashSource = abs(track.title.hashValue ^ track.artist.hashValue)
-            let evaluatedLoudness = -10.0 - Double(hashSource % 140) / 10.0
-            let neededCorrection = self.targetLoudnessLUFS - evaluatedLoudness
-            
-            Thread.sleep(forTimeInterval: 0.05)
-            
+            guard let measurement = self.measureLoudness(of: track) else {
+                print("Could not measure loudness for '\(track.title)'")
+                return
+            }
+            let neededCorrection = self.gainCorrection(forLoudness: measurement.loudness, peak: measurement.peak)
+
             DispatchQueue.main.async {
                 // Verify structural index integrity hasn't changed mid-thread
                 guard self.tracks.indices.contains(index), self.tracks[index].id == track.id else { return }
-                
-                self.tracks[index].measuredLoudness = evaluatedLoudness
+
+                self.tracks[index].measuredLoudness = measurement.loudness
                 self.tracks[index].gainCorrectiondB = neededCorrection
-                print("Auto-calculated ReplayGain for '\(track.title)': \(String(format: "%.1f LUFS", evaluatedLoudness))")
-                
+                self.tracks[index].loudnessAnalysisVersion = Self.loudnessAnalysisVersion
+                print("Auto-calculated ReplayGain for '\(track.title)': \(String(format: "%.1f LUFS, %+.1f dB", measurement.loudness, neededCorrection))")
+
                 // If the user happens to already be playing this track, update engine mix immediately
                 if self.currentIndex == index {
-                    let linearVolume = pow(10.0, Float(neededCorrection) / 20.0)
-                    let mix = AVMutableAudioMix()
-                    let parameters = AVMutableAudioMixInputParameters()
-                    parameters.setVolume(min(linearVolume, 1.0), at: .zero)
-                    mix.inputParameters = [parameters]
-                    self.avPlayer?.currentItem?.audioMix = mix
+                    self.avPlayer?.currentItem?.audioMix = Self.audioMix(forGaindB: neededCorrection)
                 }
-                
+
                 self.saveTrack(self.tracks[index])
             }
         }
@@ -2155,6 +2559,8 @@ class PlayerController: ObservableObject {
         track.manualBPM = persistedTrack.manualBPM ?? ""
         track.measuredLoudness = persistedTrack.measuredLoudness
         track.gainCorrectiondB = persistedTrack.gainCorrectiondB
+        track.loudnessAnalysisVersion = persistedTrack.loudnessAnalysisVersion ?? 0
+        track.hasCustomArtwork = persistedTrack.hasCustomArtwork ?? false
 
         if let source = persistedTrack.source {
             track.source = source
@@ -2415,26 +2821,28 @@ class PlayerController: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
+            let trackCount = self.tracks.count
+
             for index in self.tracks.indices {
                 let track = self.tracks[index]
-                let hashSource = abs(track.title.hashValue ^ track.artist.hashValue)
-                let evaluatedLoudness = -10.0 - Double(hashSource % 140) / 10.0
-                let neededCorrection = self.targetLoudnessLUFS - evaluatedLoudness
-                
-                Thread.sleep(forTimeInterval: 0.15)
-                
+                let measurement = track.source == .local ? self.measureLoudness(of: track) : nil
+
                 DispatchQueue.main.async {
-                    self.tracks[index].measuredLoudness = evaluatedLoudness
+                    self.loudnessBatchProgress = Double(index + 1) / Double(trackCount)
+
+                    guard let measurement,
+                          self.tracks.indices.contains(index),
+                          self.tracks[index].id == track.id
+                    else { return }
+
+                    let neededCorrection = self.gainCorrection(forLoudness: measurement.loudness, peak: measurement.peak)
+                    self.tracks[index].measuredLoudness = measurement.loudness
                     self.tracks[index].gainCorrectiondB = neededCorrection
-                    self.loudnessBatchProgress = Double(index + 1) / Double(self.tracks.count)
-                    
+                    self.tracks[index].loudnessAnalysisVersion = Self.loudnessAnalysisVersion
+                    self.saveTrack(self.tracks[index])
+
                     if self.currentIndex == index {
-                        let linearVolume = pow(10.0, Float(neededCorrection) / 20.0)
-                        let mix = AVMutableAudioMix()
-                        let parameters = AVMutableAudioMixInputParameters()
-                        parameters.setVolume(min(linearVolume, 1.0), at: .zero)
-                        mix.inputParameters = [parameters]
-                        self.avPlayer?.currentItem?.audioMix = mix
+                        self.avPlayer?.currentItem?.audioMix = Self.audioMix(forGaindB: neededCorrection)
                     }
                 }
             }
@@ -2475,7 +2883,12 @@ class PlayerController: ObservableObject {
         panel.prompt = "Import"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        loadWorkbookImport(from: url)
+    }
 
+    /// Parses a workbook already chosen elsewhere (e.g. browsed in the new-project dialog)
+    /// and hands it to the review pane.
+    func loadWorkbookImport(from url: URL) {
         let rows = loadWorkbookRows(from: url)
         guard !rows.isEmpty else {
             let alert = NSAlert()
@@ -2810,6 +3223,7 @@ class PlayerController: ObservableObject {
             songHash: hash,
             measuredLoudness: saved?.measuredLoudness,
             gainCorrectiondB: saved?.gainCorrectiondB ?? 0,
+            loudnessAnalysisVersion: saved?.loudnessAnalysisVersion ?? 0,
             startTime: startTime,
             endTime: endTime,
             tempoPercentage: tempoPercentage,
@@ -2864,16 +3278,16 @@ class PlayerController: ObservableObject {
                 let format = file.processingFormat
                 let frameCount = UInt32(file.length)
                 
-                // Read chunks backward to find where the audio actually drops below -60dB
+                // Read chunks backward to find where the audio actually drops below -70dB
                 let bufferSize = min(frameCount, 44100 * 2) // 2-second chunks
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: bufferSize) else {
                     scopedURL?.stopAccessingSecurityScopedResource()
                     return
                 }
-                
+
                 var currentFrameOffset = Int64(frameCount)
                 var silenceEndFrame = Int64(frameCount)
-                let silenceThreshold: Float = 0.001778 // Linear amplitude ~ -55dB
+                let silenceThreshold: Float = 0.000316 // Linear amplitude ~ -70dB
                 
                 while currentFrameOffset > 0 {
                     let readLength = min(Int64(bufferSize), currentFrameOffset)
@@ -2956,11 +3370,25 @@ class PlayerController: ObservableObject {
             window.title = "Public Display Window"
             window.contentViewController = hostingController
             window.collectionBehavior = [.fullScreenPrimary]
-            
+            window.isReleasedWhenClosed = false
+            window.delegate = displayWindowObserver
+
             displayWindowController = NSWindowController(window: window)
         }
         displayWindowController?.showWindow(nil)
+        isDisplayWindowOpen = true
     }
+
+    func closeDisplayWindow() {
+        displayWindowController?.close()
+        isDisplayWindowOpen = false
+    }
+
+    /// Keeps `isDisplayWindowOpen` honest when the DJ closes the window with its own button
+    /// rather than the View menu.
+    private lazy var displayWindowObserver: DisplayWindowObserver = {
+        DisplayWindowObserver { [weak self] in self?.isDisplayWindowOpen = false }
+    }()
 
     // MARK: - Library Persistence
 
@@ -3010,6 +3438,8 @@ class PlayerController: ObservableObject {
                 manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
+                loudnessAnalysisVersion: track.loudnessAnalysisVersion,
+                hasCustomArtwork: track.hasCustomArtwork,
                 artworkData: track.persistableArtworkData
             )
 
@@ -3031,6 +3461,8 @@ class PlayerController: ObservableObject {
                     manualBPM: track.manualBPM,
                     measuredLoudness: track.measuredLoudness,
                     gainCorrectiondB: track.gainCorrectiondB,
+                    loudnessAnalysisVersion: track.loudnessAnalysisVersion,
+                    hasCustomArtwork: track.hasCustomArtwork,
                     artworkData: track.persistableArtworkData
                 )
             )
@@ -3152,6 +3584,23 @@ class PlayerController: ObservableObject {
         saveCurrentProjectPackage()
     }
 
+    /// Creates a project from values the new-project dialog already collected — the folder
+    /// and workbook were browsed there, so nothing needs to be prompted for here.
+    func createProject(named name: String, autosaveFolder: URL?, workbookURL: URL?) {
+        createNewProject(named: sanitizeProjectName(name), autosaveParentURL: nil)
+
+        // Saving produces a single .dbdj in the chosen folder rather than a project folder.
+        if let autosaveFolder {
+            adoptProjectFile(named: name, savingInto: autosaveFolder)
+            // Write it straight away so the file is visible before the first edit.
+            saveCurrentProjectPackage()
+        }
+
+        if let workbookURL {
+            loadWorkbookImport(from: workbookURL)
+        }
+    }
+
     func beginNewProjectFlow(named name: String, autosaveRequested: Bool) {
         let sanitizedName = sanitizeProjectName(name)
 
@@ -3218,13 +3667,22 @@ class PlayerController: ObservableObject {
         let projectPanel = NSOpenPanel()
         projectPanel.allowsMultipleSelection = false
         projectPanel.canChooseDirectories = true
-        projectPanel.canChooseFiles = false
+        projectPanel.canChooseFiles = true
+        projectPanel.allowedContentTypes = [Self.projectFileType]
         projectPanel.directoryURL = defaultPanelDirectoryURL
-        projectPanel.message = "Choose an exported project folder."
-        projectPanel.prompt = "Import"
+        projectPanel.message = "Choose a .dbdj project file or an exported project folder."
+        projectPanel.prompt = "Open"
 
         projectPanel.begin { [weak self] response in
             guard let self, response == .OK, let projectFolderURL = projectPanel.url else { return }
+
+            // A single-file project takes the .dbdj path instead; it unpacks to a temporary
+            // folder rather than being loaded in place.
+            let isDirectory = (try? projectFolderURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
+            if isDirectory != true {
+                DispatchQueue.main.async { self.openProjectFile(at: projectFolderURL) }
+                return
+            }
 
             let shouldClearExistingTracks: Bool
             if !self.tracks.isEmpty {
@@ -3265,6 +3723,137 @@ class PlayerController: ObservableObject {
         }
     }
 
+    // MARK: - Single-file (.dbdj) projects
+
+    /// A `.dbdj` is just a zip of the same folder layout `exportProjectPackage` writes, so a
+    /// project can be handed around as one file instead of a folder of loose parts.
+    static let projectFileExtension = "dbdj"
+
+    /// Resolved by extension rather than `UTType(exportedAs:)` so it still works if the
+    /// declaration in Info.plist hasn't been registered by Launch Services yet.
+    static var projectFileType: UTType {
+        UTType(filenameExtension: projectFileExtension) ?? .zip
+    }
+
+    func exportProjectFile() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.directoryURL = defaultPanelDirectoryURL
+        panel.nameFieldStringValue = "\(safeProjectName).\(Self.projectFileExtension)"
+        panel.allowedContentTypes = [Self.projectFileType]
+        panel.message = "Save this project as a single .dbdj file."
+        panel.prompt = "Export"
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
+
+        let fileManager = FileManager.default
+        let stagingURL = fileManager.temporaryDirectory
+            .appendingPathComponent("dbdj-export-\(UUID().uuidString)", isDirectory: true)
+
+        do {
+            try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+            defer { try? fileManager.removeItem(at: stagingURL) }
+
+            let projectFolderURL = try exportProjectPackage(
+                toProjectFolder: stagingURL,
+                projectName: safeProjectName
+            )
+            try ZipArchive.zip(contentsOf: projectFolderURL, to: destinationURL)
+            print("Exported project file to \(destinationURL.path)")
+        } catch {
+            presentError(title: "Couldn't Export Project", message: error.localizedDescription)
+        }
+    }
+
+    /// Unpacks a `.dbdj` and loads it. Further edits autosave straight back into the same
+    /// file, so the DJ never has to think about re-exporting.
+    func openProjectFile(at fileURL: URL) {
+        let name = sanitizeProjectName(fileURL.deletingPathExtension().lastPathComponent)
+        let unpackedURL = freshWorkingFolderURL(named: name)
+
+        do {
+            try ZipArchive.unzip(fileURL, to: unpackedURL)
+        } catch {
+            presentError(title: "Couldn't Open Project", message: error.localizedDescription)
+            return
+        }
+
+        let shouldClearExistingTracks: Bool
+        if !tracks.isEmpty {
+            switch clearQueueBeforeImportChoice() {
+            case .clear: shouldClearExistingTracks = true
+            case .keep: shouldClearExistingTracks = false
+            case .cancel: return
+            }
+        } else {
+            shouldClearExistingTracks = true
+        }
+
+        projectName = name
+        projectAutosaveParentURL = nil
+        projectFolderURL = nil
+        projectFileURL = fileURL
+        projectWorkingFolderURL = unpackedURL
+        autosaveEnabled = true
+        hasLoadedProject = true
+        ProjectLocations.noteRecentProject(fileURL)
+
+        Task {
+            await importProjectPackage(from: unpackedURL, clearExistingTracks: shouldClearExistingTracks)
+        }
+    }
+
+    private enum ClearQueueChoice { case clear, keep, cancel }
+
+    private func clearQueueBeforeImportChoice() -> ClearQueueChoice {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Open Project"
+        alert.informativeText = "Do you want to clear the current play queue before opening this project?"
+        alert.addButton(withTitle: "Clear Existing")
+        alert.addButton(withTitle: "Keep Existing")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .clear
+        case .alertSecondButtonReturn: return .keep
+        default: return .cancel
+        }
+    }
+
+    /// Asks for a Spotify client ID inline. Returns the key, or nil if the DJ chooses to
+    /// carry on without the Spotify songs.
+    @MainActor
+    private func promptForSpotifyKey(message: String) -> String? {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Spotify API Key Needed"
+        alert.informativeText = message
+
+        let field = NSTextField(string: spotifyClientID)
+        field.placeholderString = "Spotify client ID"
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Skip Spotify Songs")
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+
+        let entered = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !entered.isEmpty else { return nil }
+        spotifyClientID = entered
+        return entered
+    }
+
+    private func presentError(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
+
     func saveProjectAs() {
         let alert = NSAlert()
         alert.messageText = "Save Project As"
@@ -3281,27 +3870,25 @@ class PlayerController: ObservableObject {
         let typedName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let newName = sanitizeProjectName(typedName.isEmpty ? "\(safeProjectName) copy" : typedName)
 
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        let panel = NSSavePanel()
         panel.canCreateDirectories = true
         panel.directoryURL = defaultPanelDirectoryURL
-        panel.message = "Choose where the project should be saved."
+        panel.nameFieldStringValue = "\(newName).\(Self.projectFileExtension)"
+        panel.allowedContentTypes = [Self.projectFileType]
+        panel.message = "Choose where the project file should be saved."
         panel.prompt = "Save"
 
         panel.begin { [weak self] response in
-            guard let self, response == .OK, let parentURL = panel.url else { return }
+            guard let self, response == .OK, let destinationURL = panel.url else { return }
             DispatchQueue.main.async {
                 self.projectName = newName
-                
-                let projectFolder = parentURL.appendingPathComponent(
-                    self.sanitizeProjectName(newName), isDirectory: true
-                )
-                self.projectAutosaveParentURL = parentURL
-                self.projectFolderURL = projectFolder
+                self.projectAutosaveParentURL = nil
+                self.projectFolderURL = nil
+                self.projectFileURL = destinationURL
+                self.projectWorkingFolderURL = self.freshWorkingFolderURL(named: newName)
                 self.autosaveEnabled = true
                 self.hasLoadedProject = true
+                ProjectLocations.noteRecentProject(destinationURL)
                 self.saveCurrentProjectPackage()
             }
         }
@@ -3331,9 +3918,21 @@ class PlayerController: ObservableObject {
 
         for track in tracks {
             var localFileName: String? = nil
+            var bundledFileName: String? = nil
             var artworkFileName: String? = nil
 
-            if track.source == .local, track.url.isFileURL {
+            // Popular Edits play from a file inside the app bundle, which every install
+            // already has — record the name and skip the copy entirely.
+            if track.source == .local, track.url.isFileURL, let shippedName = self.bundledFileName(for: track) {
+                bundledFileName = shippedName
+                // Drop a copy left behind by a save from before this optimization, which
+                // would otherwise keep bloating the file.
+                removeStaleLocalAudioCopies(
+                    songHash: track.songHash,
+                    keepingFileName: "",
+                    in: filesFolderURL
+                )
+            } else if track.source == .local, track.url.isFileURL {
                 localFileName = projectPackageFileName(for: track)
                 let destinationURL = filesFolderURL.appendingPathComponent(localFileName!)
 
@@ -3354,19 +3953,35 @@ class PlayerController: ObservableObject {
             }
 
 
+            // Only DJ-chosen art is stored. Anything that came from the audio file's own
+            // tags is re-read on import, so it isn't duplicated into the project.
+            let safeHash = track.songHash.replacingOccurrences(of: ":", with: "_")
             if track.source == .local, let artworkData = track.persistableArtworkData {
-                artworkFileName = "\(track.songHash).png"
+                artworkFileName = "\(safeHash).jpg"
                 let artworkURL = artworkFolderURL.appendingPathComponent(artworkFileName!)
-                if fileManager.fileExists(atPath: artworkURL.path) {
-                    try fileManager.removeItem(at: artworkURL)
+                // Overwrite whatever art was there before, including a PNG written by an
+                // older version of the app.
+                for stale in ["\(safeHash).png", artworkFileName!] {
+                    let staleURL = artworkFolderURL.appendingPathComponent(stale)
+                    if fileManager.fileExists(atPath: staleURL.path) {
+                        try fileManager.removeItem(at: staleURL)
+                    }
                 }
                 try artworkData.write(to: artworkURL, options: .atomic)
+            } else {
+                for stale in ["\(safeHash).png", "\(safeHash).jpg"] {
+                    let staleURL = artworkFolderURL.appendingPathComponent(stale)
+                    if fileManager.fileExists(atPath: staleURL.path) {
+                        try fileManager.removeItem(at: staleURL)
+                    }
+                }
             }
 
             exportedTracks.append(
                 ProjectPackageTrack(
                     from: track,
                     localFileName: localFileName,
+                    bundledFileName: bundledFileName,
                     artworkFileName: artworkFileName
                 )
             )
@@ -3397,21 +4012,69 @@ class PlayerController: ObservableObject {
     ) async {
         do {
             let package = try loadProjectPackage(from: projectFolderURL)
-            let clientID = UserDefaults.standard.string(forKey: "spotifyClientID") ?? ""
             let filesFolderURL = projectFolderURL.appendingPathComponent("files", isDirectory: true)
             let artworkFolderURL = projectFolderURL.appendingPathComponent("artwork", isDirectory: true)
             let existingTracks = await MainActor.run { self.tracks }
             let previousActiveSongHash = await MainActor.run { self.currentTrack?.songHash }
 
-            if package.tracks.contains(where: { $0.source == .spotify }) {
+            let spotifyTrackCount = package.tracks.filter { $0.source == .spotify }.count
+            var clientID = await MainActor.run {
+                self.spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            var includeSpotify = spotifyTrackCount > 0
+
+            // This project needs Spotify. Ask for a key rather than failing silently — the
+            // old behaviour aborted the whole import and left an empty project behind.
+            if includeSpotify, clientID.isEmpty {
+                let songWord = spotifyTrackCount == 1 ? "song" : "songs"
+                if let entered = await MainActor.run(body: {
+                    self.promptForSpotifyKey(
+                        message: "This project has \(spotifyTrackCount) Spotify \(songWord). "
+                            + "Enter your Spotify client ID to load them."
+                    )
+                }) {
+                    clientID = entered
+                } else {
+                    includeSpotify = false
+                }
+            }
+
+            if includeSpotify {
                 do {
                     try await spotifyService.connect(clientID: clientID)
-                    await MainActor.run {
-                        self.spotifyStatusMessage = "Spotify connection confirmed."
-                    }
+                    await MainActor.run { self.spotifyStatusMessage = "Spotify connection confirmed." }
                 } catch {
-                    print("Spotify connection check failed before project import: \(error.localizedDescription)")
-                    return
+                    // One chance to correct a wrong key before giving up on the Spotify songs.
+                    if let retryID = await MainActor.run(body: {
+                        self.promptForSpotifyKey(
+                            message: "Couldn't connect to Spotify with that key "
+                                + "(\(error.localizedDescription)). Check it and try again."
+                        )
+                    }) {
+                        clientID = retryID
+                        do {
+                            try await spotifyService.connect(clientID: clientID)
+                            await MainActor.run { self.spotifyStatusMessage = "Spotify connection confirmed." }
+                        } catch {
+                            includeSpotify = false
+                        }
+                    } else {
+                        includeSpotify = false
+                    }
+                }
+            }
+
+            if spotifyTrackCount > 0, !includeSpotify {
+                let songWord = spotifyTrackCount == 1 ? "song" : "songs"
+                await MainActor.run {
+                    self.spotifyStatusMessage =
+                        "\(spotifyTrackCount) Spotify \(songWord) skipped — no working API key."
+                    self.presentError(
+                        title: "Spotify Songs Not Loaded",
+                        message: "\(spotifyTrackCount) \(songWord) in this project come from Spotify and "
+                            + "need an API key. The rest of the project has been opened. Add a key under "
+                            + "Settings ▸ Set Spotify API Key, then open the project again to load them."
+                    )
                 }
             }
 
@@ -3419,7 +4082,8 @@ class PlayerController: ObservableObject {
                 from: package,
                 filesFolderURL: filesFolderURL,
                 artworkFolderURL: artworkFolderURL,
-                clientID: clientID
+                clientID: clientID,
+                includeSpotify: includeSpotify
             )
 
             // Re-order the imported tracks to match song_order.json.
@@ -3491,25 +4155,34 @@ class PlayerController: ObservableObject {
         from package: ProjectPackageExport,
         filesFolderURL: URL,
         artworkFolderURL: URL,
-        clientID: String
+        clientID: String,
+        includeSpotify: Bool
     ) async throws -> [Track] {
         var importedTracks: [Track] = []
         let spotifyPackageTracks = package.tracks.filter { $0.source == .spotify }
-        let spotifyInputs = spotifyPackageTracks.compactMap { $0.spotifyImportInput }
-        let fetchedSpotifyTracks = try await spotifyService.importTracks(from: spotifyInputs, clientID: clientID)
+        let spotifyInputs = includeSpotify ? spotifyPackageTracks.compactMap { $0.spotifyImportInput } : []
+        // Without a usable key the local songs still open; the Spotify ones are left out.
+        let fetchedSpotifyTracks = spotifyInputs.isEmpty
+            ? []
+            : try await spotifyService.importTracks(from: spotifyInputs, clientID: clientID)
         var spotifyIterator = fetchedSpotifyTracks.makeIterator()
 
         for packageTrack in package.tracks {
             switch packageTrack.source {
             case .local:
-                guard let localTrack = try buildLocalTrack(
+                guard var localTrack = try buildLocalTrack(
                     from: packageTrack,
                     filesFolderURL: filesFolderURL,
                     artworkFolderURL: artworkFolderURL
                 ) else { continue }
+                // Projects only store DJ-chosen art, so anything else comes back from the
+                // audio file's own tags here.
+                if localTrack.artwork == nil {
+                    localTrack.artwork = await embeddedArtwork(for: localTrack.url)
+                }
                 importedTracks.append(localTrack)
             case .spotify:
-                guard packageTrack.spotifyImportInput != nil else { continue }
+                guard includeSpotify, packageTrack.spotifyImportInput != nil else { continue }
                 guard var fetchedTrack = spotifyIterator.next() else { continue }
                 applyProjectPackage(packageTrack, to: &fetchedTrack)
                 importedTracks.append(fetchedTrack)
@@ -3524,10 +4197,8 @@ class PlayerController: ObservableObject {
         filesFolderURL: URL,
         artworkFolderURL: URL
     ) throws -> Track? {
-        guard let fileName = packageTrack.localFileName else { return nil }
-        let fileURL = filesFolderURL.appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            print("Missing local file for imported track: \(fileName)")
+        guard let fileURL = resolvedAudioURL(for: packageTrack, filesFolderURL: filesFolderURL) else {
+            print("Missing local file for imported track: \(packageTrack.title)")
             return nil
         }
 
@@ -3544,6 +4215,11 @@ class PlayerController: ObservableObject {
         )
 
         applyPersistedSettings(packageTrack.persistedTrack, to: &track)
+        // Art that shipped inside the project was chosen by the DJ, so keep treating it as
+        // an override even for projects saved before the flag existed.
+        if packageTrack.artworkFileName != nil || packageTrack.artworkData != nil {
+            track.hasCustomArtwork = true
+        }
         return track
     }
 
@@ -3580,6 +4256,8 @@ class PlayerController: ObservableObject {
                 manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
+                loudnessAnalysisVersion: track.loudnessAnalysisVersion,
+                hasCustomArtwork: track.hasCustomArtwork,
                 artworkData: track.persistableArtworkData
             )
         })
@@ -3636,6 +4314,8 @@ class PlayerController: ObservableObject {
                 manualBPM: track.manualBPM,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
+                loudnessAnalysisVersion: track.loudnessAnalysisVersion,
+                hasCustomArtwork: track.hasCustomArtwork,
                 artworkData: track.persistableArtworkData
             )
         }
@@ -3788,5 +4468,18 @@ struct PointingHandCursorModifier: ViewModifier {
 extension View {
     func pointingHandCursor() -> some View {
         modifier(PointingHandCursorModifier())
+    }
+}
+
+/// Notices when the audience window is closed directly, so the View menu's checkmark clears.
+final class DisplayWindowObserver: NSObject, NSWindowDelegate {
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
     }
 }
