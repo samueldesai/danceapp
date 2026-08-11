@@ -17,11 +17,29 @@ final class ProjectFileOpenRequest: ObservableObject {
 }
 
 final class DancePlayerAppDelegate: NSObject, NSApplicationDelegate {
+    /// Set once the main window appears, so termination can flush the player's pending save.
+    weak var player: PlayerController?
+    private var isWaitingForFinalSave = false
+
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first(where: {
             $0.pathExtension.lowercased() == PlayerController.projectFileExtension
         }) else { return }
         ProjectFileOpenRequest.shared.pendingURL = url
+    }
+
+    /// Autosaves are debounced and then written on a background queue, so quitting right
+    /// after an edit used to kill the write in flight and lose it. Hold termination until
+    /// the save has landed — a few seconds on a large project, and the alternative is
+    /// silently discarding the DJ's last change.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let player, !isWaitingForFinalSave else { return .terminateNow }
+
+        isWaitingForFinalSave = true
+        player.flushPendingSaves {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 
@@ -41,6 +59,7 @@ struct Dance_PlayerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(player: player)
+                .onAppear { appDelegate.player = player }
         }
         .commands {
             // Replaces SwiftUI's stock "New Item" so File reads as project actions.

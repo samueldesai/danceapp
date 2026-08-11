@@ -1768,6 +1768,24 @@ class PlayerController: ObservableObject {
         }
     }
 
+    /// Writes any debounced autosave straight away and calls back once it has actually landed
+    /// on disk.
+    ///
+    /// Saving is asynchronous — a 350ms debounce, then a full package write and `.dbdj` re-zip
+    /// on `projectSaveQueue`. Nothing used to wait for that, so quitting inside the window
+    /// killed the write and the edit was gone on relaunch. `projectSaveQueue` is serial, so a
+    /// block enqueued behind the save can only run once the save has finished.
+    func flushPendingSaves(completion: @escaping () -> Void) {
+        projectAutosaveTask?.cancel()
+        projectAutosaveTask = nil
+
+        saveCurrentProjectPackage()
+
+        projectSaveQueue.async {
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
     func saveProjectOnCloseIfNeeded() {
         guard hasLoadedProject else { return }
 
