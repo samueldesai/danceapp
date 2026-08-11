@@ -60,37 +60,119 @@ private let workbookStyleAliases: [String: String] = [
 /// can type the actual name in during review.
 private let genericStylePlaceholders: Set<String> = ["line dance", "choreography", "mixer"]
 
+/// Tags that say how a song is *used* rather than what it is. A cross-step waltz danced
+/// with a stranger is still a cross-step waltz, so these ride alongside the dance style
+/// instead of replacing it — otherwise the row counts for neither.
+let workbookRoleTagStyles: Set<String> = ["Jam", "Dance with a Stranger"]
+
+/// The word that identifies each role tag, matched anywhere in a Style tag rather than only
+/// as its own dropdown entry, since DJs write them inline ("Cross-Step with a Stranger",
+/// "Rotary (jam)") as often as they write them as a separate comma-separated tag.
+private let workbookRoleTagKeywords: [(keyword: String, style: String)] = [
+    ("stranger", "Dance with a Stranger"),
+    ("jam", "Jam"),
+]
+
+/// Separators DJs use between two tags in one cell, folded to the comma the dropdown itself
+/// uses. None of the predefined styles contain any of these, so splitting on them is safe.
+private let workbookTagSeparators = ["/", "+", "&", ";", " - "]
+
+/// Punctuation left around a tag once it's been split out — "Rotary (jam)" leaves "Rotary (".
+private let workbookTokenTrimSet = CharacterSet.whitespacesAndNewlines
+    .union(CharacterSet(charactersIn: "()[]-–—"))
+
+/// Connective words that carry no style meaning on their own. Only ever stripped as a
+/// fallback, after the token has failed to resolve as written — "Barbie Line Dance" ends in
+/// one of these and must keep it.
+private let workbookFillerWords: Set<String> = ["dance", "with", "w", "a", "an", "the", "and"]
+
+/// Removes the first whole-word occurrence of `keyword`, reporting whether it was there.
+/// Whole-word so "Strangers" or "Jamaica" isn't read as a role tag.
+private func removeRoleKeyword(_ keyword: String, from text: inout String) -> Bool {
+    var searchStart = text.startIndex
+    while let range = text.range(of: keyword, options: .caseInsensitive, range: searchStart..<text.endIndex) {
+        let precededByLetter = range.lowerBound > text.startIndex
+            && text[text.index(before: range.lowerBound)].isLetter
+        let followedByLetter = range.upperBound < text.endIndex
+            && text[range.upperBound].isLetter
+        if !precededByLetter, !followedByLetter {
+            text.removeSubrange(range)
+            return true
+        }
+        searchStart = range.upperBound
+    }
+    return false
+}
+
+private func strippingFillerWords(_ token: String) -> String {
+    var words = token.split(separator: " ").map(String.init)
+    while let first = words.first, workbookFillerWords.contains(first.lowercased()) { words.removeFirst() }
+    while let last = words.last, workbookFillerWords.contains(last.lowercased()) { words.removeLast() }
+    return words.joined(separator: " ")
+}
+
+private func canonicalWorkbookStyle(for token: String) -> String? {
+    if let canonical = workbookStyleAliases[token.lowercased()] { return canonical }
+    return predefinedDanceStyles.first { $0.caseInsensitiveCompare(token) == .orderedSame }
+}
+
 /// Splits a raw workbook "Style" cell (comma-separated tags, chosen from a fixed dropdown
 /// so there's no typo variance to account for) into canonical predefined styles plus any
 /// leftover text that doesn't match anything, filed under "Other".
 func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, customText: String) {
-    var tokens = rawStyle
-        .split(separator: ",")
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
+    var normalized = rawStyle
+    for separator in workbookTagSeparators {
+        normalized = normalized.replacingOccurrences(of: separator, with: ",")
+    }
 
     var styles = Set<String>()
 
+    // Pull the role tags out of whichever tag they were written into, keeping what's left of
+    // that tag — "Cross-Step with a Stranger" is a cross-step waltz *and* a stranger dance.
+    var tokens = normalized
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: workbookTokenTrimSet) }
+        .filter { !$0.isEmpty }
+        .compactMap { token -> String? in
+            var remainder = token
+            var foundRoleTag = false
+            for (keyword, style) in workbookRoleTagKeywords where removeRoleKeyword(keyword, from: &remainder) {
+                styles.insert(style)
+                foundRoleTag = true
+            }
+            guard foundRoleTag else { return token }
+            let cleaned = remainder.trimmingCharacters(in: workbookTokenTrimSet)
+            return cleaned.isEmpty ? nil : cleaned
+        }
+
     // "Cross-Step" + "Mixer" chosen together means the specific "Cross-Step Waltz Mixer",
     // not the generic Mixer category.
+    let crossStepSpellings = ["cross-step", "cross step", "cross-step waltz", "cross step waltz"]
     let lowerTokens = tokens.map { $0.lowercased() }
-    let hasCrossStep = lowerTokens.contains("cross-step") || lowerTokens.contains("cross step")
+    let hasCrossStep = lowerTokens.contains { crossStepSpellings.contains($0) }
     let hasMixer = lowerTokens.contains("mixer")
     if hasCrossStep, hasMixer {
         styles.insert("Cross-Step Waltz Mixer")
-        tokens.removeAll { ["cross-step", "cross step", "mixer"].contains($0.lowercased()) }
+        tokens.removeAll { (crossStepSpellings + ["mixer"]).contains($0.lowercased()) }
     }
 
     var leftovers: [String] = []
     for token in tokens {
-        let lower = token.lowercased()
-        if let canonical = workbookStyleAliases[lower] {
+        if let canonical = canonicalWorkbookStyle(for: token) {
             styles.insert(canonical)
-        } else if let exact = predefinedDanceStyles.first(where: { $0.caseInsensitiveCompare(token) == .orderedSame }) {
-            styles.insert(exact)
-        } else {
-            leftovers.append(token)
+            continue
         }
+
+        // Retry without the connective words a removed role tag leaves behind: "Cross-Step
+        // with a Stranger" reaches here as "Cross-Step with a", which is just "Cross-Step".
+        let stripped = strippingFillerWords(token)
+        if stripped.isEmpty { continue }
+        if stripped != token, let canonical = canonicalWorkbookStyle(for: stripped) {
+            styles.insert(canonical)
+            continue
+        }
+
+        leftovers.append(token)
     }
 
     if !leftovers.isEmpty {
@@ -373,6 +455,11 @@ private func parseWorkbookRows(from rawRows: [[String]]) -> [WorkbookImportRow] 
         let (styles, customText) = resolveWorkbookStyles(from: rawStyle)
         let popularEdit = matchedPopularEdit(title: title, artist: artist, rawStyle: rawStyle)
 
+        // A Popular Edit names the dance, but the workbook's role tags say how it's used —
+        // keep those instead of letting the edit's own style list erase them.
+        let resolvedStyles = popularEdit
+            .map { $0.danceStyles.union(styles.intersection(workbookRoleTagStyles)) } ?? styles
+
         results.append(
             WorkbookImportRow(
                 order: Int(field(row, map.order)),
@@ -382,14 +469,57 @@ private func parseWorkbookRows(from rawRows: [[String]]) -> [WorkbookImportRow] 
                 lengthText: field(row, map.length),
                 rawStyle: rawStyle,
                 isLocal: popularEdit != nil ? true : isEditedTrue,
-                resolvedStyles: popularEdit?.danceStyles ?? styles,
+                resolvedStyles: resolvedStyles,
                 customStyleText: popularEdit != nil ? "" : customText,
                 matchedPopularEdit: popularEdit
             )
         )
     }
 
-    return results.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+    var ordered = results.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+    promoteClosingStyles(in: &ordered)
+    return ordered
+}
+
+/// The four dances the guidelines have the set close on. The workbook's Style dropdown has
+/// no "Last …" option — a closing dance is just tagged with its style — so the final one of
+/// each is promoted on import.
+private let closingStylePromotions: [(base: String, last: String)] = [
+    ("West Coast Swing", "Last West Coast Swing"),
+    ("Lindy Hop", "Last Lindy Hop"),
+    ("Cross-Step Waltz", "Last Cross-Step Waltz"),
+    ("Rotary Waltz", "Last Rotary Waltz"),
+]
+
+private let rotaryCloseStyles: Set<String> = ["Rotary Waltz", "Last Rotary Waltz"]
+
+/// Where the closing block starts. The guidelines close on four dances ending in a rotary
+/// waltz, so normally that's the last four songs — but a set may put one solo-jazz dance
+/// after the final rotary, and counting only four would then leave the rotary out of range.
+/// So: four when the set ends on the rotary, five when something follows it.
+private func closingBlockStart(in rows: [WorkbookImportRow]) -> Int {
+    let endsOnRotary = !(rows.last?.resolvedStyles.isDisjoint(with: rotaryCloseStyles) ?? true)
+    return max(0, rows.count - (endsOnRotary ? 4 : 5))
+}
+
+/// Retags the last occurrence of each closing dance with its "Last …" variant. Runs on rows
+/// already sorted into play order, so "last" means last in the set rather than last in the
+/// file, and only inside the closing block — a lone lindy hop mid-set isn't a closing dance
+/// just because nothing follows it.
+///
+/// The tag replaces the base style rather than joining it: every guideline category counts a
+/// "Last …" tag as its base style, so nothing stops counting toward the minimums.
+func promoteClosingStyles(in rows: inout [WorkbookImportRow]) {
+    let closingBlockStart = closingBlockStart(in: rows)
+
+    for (base, last) in closingStylePromotions {
+        guard let index = rows.lastIndex(where: { $0.resolvedStyles.contains(base) }),
+              index >= closingBlockStart
+        else { continue }
+
+        rows[index].resolvedStyles.remove(base)
+        rows[index].resolvedStyles.insert(last)
+    }
 }
 
 /// Entry point: detects CSV vs XLSX by extension and returns the parsed, order-sorted rows.
@@ -1263,9 +1393,9 @@ private struct WorkbookRowEditor: View {
         return "Select styles"
     }
 
-    /// Reuses `Track.formattedStylesDisplay` directly (via a throwaway placeholder Track)
-    /// so this column reads exactly like it will on the audience screen — e.g.
-    /// Cross-Step Waltz + Jam becomes "Jam (Cross-Step Waltz)".
+    /// Reuses `Track.formattedStylesDisplay` directly (via a throwaway placeholder Track) so
+    /// this column reads exactly like the audience screen will — e.g. Cross-Step Waltz + Jam
+    /// becomes "Jam (Cross-Step Waltz)", and a promoted closer shows as "Last Rotary Waltz".
     private func displayStyleText() -> String {
         let previewTrack = Track(
             url: URL(fileURLWithPath: "/"),

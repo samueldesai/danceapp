@@ -64,8 +64,9 @@ struct StyleCategory {
 }
 
 private enum StyleGroup {
-    // A cross-step waltz mixer is a mixer, not a cross-step waltz.
-    static let crossStepWaltz = StyleCategory(["Cross-Step Waltz", "Last Cross-Step Waltz"])
+    // A cross-step waltz mixer satisfies the mixer row *and* the cross-step waltz row — the
+    // floor is still dancing a cross-step waltz to it.
+    static let crossStepWaltz = StyleCategory(["Cross-Step Waltz", "Last Cross-Step Waltz", "Cross-Step Waltz Mixer"])
     static let fastWaltz = StyleCategory(["Fast Waltz", "Accelerating Waltz"])
     static let rotaryWaltz = StyleCategory(["Rotary Waltz", "Last Rotary Waltz", "Fast Waltz", "Accelerating Waltz"])
     static let lindyHop = StyleCategory(["Lindy Hop", "Last Lindy Hop"])
@@ -205,11 +206,12 @@ struct GuidelineEvaluator {
     }
 
     /// Counts the lesson style the same way its own table row does, so a cross-step waltz
-    /// lesson doesn't report one total here and a different one below.
+    /// lesson doesn't report one total here and a different one below. Narrower categories
+    /// come first — a cross-step waltz mixer lesson means mixers, not every cross-step waltz.
     private var lessonCategory: StyleCategory {
-        for category in [StyleGroup.crossStepWaltz, StyleGroup.rotaryWaltz, StyleGroup.lindyHop,
-                         StyleGroup.westCoastSwing, StyleGroup.polka, StyleGroup.lineDance,
-                         StyleGroup.mixer, StyleGroup.choreography, StyleGroup.latin, StyleGroup.fusion]
+        for category in [StyleGroup.mixer, StyleGroup.lineDance, StyleGroup.choreography,
+                         StyleGroup.crossStepWaltz, StyleGroup.rotaryWaltz, StyleGroup.lindyHop,
+                         StyleGroup.westCoastSwing, StyleGroup.polka, StyleGroup.latin, StyleGroup.fusion]
         where category.styles.contains(lessonStyle) {
             return category
         }

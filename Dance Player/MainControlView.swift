@@ -25,12 +25,8 @@ struct ContentView: View {
                     onFinished: { player.pendingWorkbookImport = nil }
                 )
             } else if player.hasLoadedProject {
-                HSplitView {
-                    PlaylistView(player: player)
-                        .frame(minWidth: 240, maxWidth: 320)
-                    LibraryTableView(player: player)
-                }
-                .disabled(player.isImportingContent)
+                QueueSplitView(player: player)
+                    .disabled(player.isImportingContent)
 
                 if player.selectedTrackForEditing != nil {
                     Color.black.opacity(0.4)
@@ -99,7 +95,10 @@ struct ContentView: View {
         }
         // A .dbdj double-clicked in Finder can arrive before this view exists, so check on
         // appear as well as on change.
-        .onAppear(perform: consumePendingProjectFile)
+        .onAppear {
+            consumePendingProjectFile()
+            player.relevelLibraryGainOnLaunch()
+        }
         .onReceive(openRequest.$pendingURL) { _ in consumePendingProjectFile() }
         .sheet(isPresented: $player.isPresentingNewProject) {
             NewProjectDialog(player: player) { player.isPresentingNewProject = false }
@@ -438,6 +437,73 @@ struct AppLogoView: View {
 }
 
 // MARK: - PLAYLIST QUEUE
+/// Queue on the left, library on the right, with a draggable divider between them.
+///
+/// Not an `HSplitView`: when both panes are flexible it ignores `idealWidth` and just runs
+/// the queue out to its `maxWidth`, which read as a 50/50 split on a wide window. Driving the
+/// divider directly is the only way to get a predictable opening width — and it means the
+/// position the DJ drags to is remembered instead of resetting every launch.
+struct QueueSplitView: View {
+    @ObservedObject var player: PlayerController
+
+    static let minQueueWidth: CGFloat = 280
+    static let maxQueueWidth: CGFloat = 700
+    /// Width the library needs before the queue is allowed to take any more room.
+    private static let minLibraryWidth: CGFloat = 380
+
+    @AppStorage("DancePlayer.queueWidth") private var storedQueueWidth: Double = 400
+    /// Width when the drag began — `DragGesture` reports translation from that point, so the
+    /// running total has to come from a fixed origin rather than the live value.
+    @State private var dragStartWidth: CGFloat? = nil
+
+    var body: some View {
+        GeometryReader { geo in
+            // A narrow window squeezes the queue rather than pushing the library off-screen.
+            let ceiling = max(
+                Self.minQueueWidth,
+                min(Self.maxQueueWidth, geo.size.width - Self.minLibraryWidth)
+            )
+            let queueWidth = min(max(CGFloat(storedQueueWidth), Self.minQueueWidth), ceiling)
+
+            HStack(spacing: 0) {
+                PlaylistView(player: player)
+                    .frame(width: queueWidth)
+
+                divider(ceiling: ceiling)
+
+                LibraryTableView(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    private func divider(ceiling: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(hex: "#242429"))
+            .frame(width: 1)
+            .overlay(
+                // Hairline to look at, wider strip to actually grab.
+                Color.clear
+                    .frame(width: 11)
+                    .contentShape(Rectangle())
+                    .resizeLeftRightCursor()
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                let origin = dragStartWidth ?? CGFloat(storedQueueWidth)
+                                if dragStartWidth == nil { dragStartWidth = origin }
+                                let proposed = origin + value.translation.width
+                                storedQueueWidth = Double(
+                                    min(max(proposed, Self.minQueueWidth), ceiling)
+                                )
+                            }
+                            .onEnded { _ in dragStartWidth = nil }
+                    )
+            )
+    }
+}
+
 struct PlaylistView: View {
     @ObservedObject var player: PlayerController
     @State private var draggedTrack: Track? = nil
@@ -1943,6 +2009,19 @@ struct PlaybackStatusBar: View {
         }
     }
 
+    /// The size the line renders at when it fits — `minimumScaleFactor` takes it down from
+    /// here for a long title, rather than scrolling. A marquee makes the DJ wait to read the
+    /// end of a title mid-set. Just under the old fixed 30pt, so a short title still reads
+    /// big while a long one shrinks instead of running off.
+    private static let nowPlayingMaxFontSize: CGFloat = 25
+
+    /// Floor for the shrink-to-fit. Expressed as a point size and converted to the scale
+    /// factor SwiftUI wants, so changing the maximum above doesn't silently move the floor.
+    private static let nowPlayingMinFontSize: CGFloat = 9
+    private static var nowPlayingMinScale: CGFloat {
+        nowPlayingMinFontSize / nowPlayingMaxFontSize
+    }
+
     @ViewBuilder
     private var statusDisplayView: some View {
         let title = player.currentTrack?.title ?? "Nothing playing"
@@ -1953,22 +2032,17 @@ struct PlaybackStatusBar: View {
             HStack(spacing: 0) {
             }
         } else if let message = player.spotifyStatusMessage, player.currentTrack?.source == .spotify {
-            MarqueeText(text: message, font: .system(size: 30, weight: .bold), color: statusDisplayColor, isEnabled: !player.isImportingContent)
+            Text(message)
+                .font(.system(size: Self.nowPlayingMaxFontSize, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(Self.nowPlayingMinScale)
         } else if player.currentTrack?.source == .spotify || player.currentTrack?.source == .local {
-            ScrollingMarquee(content: {
-                HStack(spacing: 0) {
-                    Text("Now Playing ")
-                    .font(.system(size: 30))
-
-                    Text(title).italic()
-                    .font(.system(size: 30, weight: .bold))
-
-                    Text(" - \(artist): \(styles)")
-                    .font(.system(size: 30, weight: .bold))
-                }
-                .foregroundColor(statusDisplayColor)
-            }, isEnabled: !player.isImportingContent)
-            .id("\(title)|\(artist)|\(styles)")
+            // One concatenated Text, not an HStack, so the scale-to-fit applies evenly
+            // across the whole line instead of shrinking each run on its own.
+            (Text(title).italic() + Text(" - \(artist): \(styles)"))
+                .font(.system(size: Self.nowPlayingMaxFontSize, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(Self.nowPlayingMinScale)
         }
     }
 

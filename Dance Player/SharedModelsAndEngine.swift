@@ -77,6 +77,9 @@ struct Track: Identifiable, Equatable {
         return delta / speedMultiplier
     }
     
+    /// Shown to the floor and to the DJ alike, "Last …" included — the audience screen calls
+    /// the closing dances out by name, and `nextSongLeadIn` gives them the definite article
+    /// so it announces as "the Last Rotary Waltz".
     var formattedStylesDisplay: String {
         let isJam = danceStyles.contains("Jam")
         let isWithStranger = danceStyles.contains("Dance with a Stranger")
@@ -88,12 +91,12 @@ struct Track: Identifiable, Equatable {
         for style in predefinedDanceStyles {
             guard style != "Jam", style != "Dance with a Stranger" else { continue }
             guard !(style == "Cross-Step Waltz" && hasCrossStepWaltzMixer) else { continue }
-            if danceStyles.contains(style) {
-                if style == "Other" && !customStyle.isEmpty {
-                    items.append(customStyle)
-                } else {
-                    items.append(style)
-                }
+            guard danceStyles.contains(style) else { continue }
+
+            if style == "Other", !customStyle.isEmpty {
+                items.append(customStyle)
+            } else {
+                items.append(style)
             }
         }
 
@@ -121,7 +124,13 @@ struct Track: Identifiable, Equatable {
     ]
 
     var nextSongLeadIn: String {
-        Track.stylesTakingDefiniteArticle.contains(formattedStylesDisplay)
+        let display = formattedStylesDisplay
+        // A set has exactly one last rotary waltz, so it takes "the" for the same reason the
+        // named choreographies do — "a Last Rotary Waltz" isn't English.
+        let takesDefiniteArticle = Track.stylesTakingDefiniteArticle.contains(display)
+            || display.hasPrefix("Last ")
+
+        return takesDefiniteArticle
             ? "The next song is the"
             : "The next song is a"
     }
@@ -1279,15 +1288,56 @@ private struct Biquad {
 
 // MARK: - Audio Engine & Controller
 class PlayerController: ObservableObject {
-    /// Bump when `measureLoudness` changes, to re-measure tracks cached by an older version.
-    static let loudnessAnalysisVersion = 1
+    /// Bump when `measureLoudness` or the loudness target changes, to re-measure tracks
+    /// cached by an older version. v2: target moved to -14 LUFS, and the gain mix went from
+    /// silently inert to actually applied — every v1 correction is wrong on both counts.
+    static let loudnessAnalysisVersion = 2
 
-    static func audioMix(forGaindB gaindB: Double) -> AVMutableAudioMix {
+    /// `AVAudioMix` matches its input parameters to an asset track by ID. Parameters built
+    /// with the plain initializer carry `kCMPersistentTrackID_Invalid`, match nothing, and
+    /// are dropped without error — so the track ID is what makes the gain real.
+    static func audioMix(forGaindB gaindB: Double, trackID: CMPersistentTrackID) -> AVMutableAudioMix {
         let mix = AVMutableAudioMix()
         let parameters = AVMutableAudioMixInputParameters()
+        parameters.trackID = trackID
         parameters.setVolume(pow(10.0, Float(gaindB) / 20.0), at: .zero)
         mix.inputParameters = [parameters]
         return mix
+    }
+
+    /// Audio track IDs resolved per file, so applying a gain doesn't have to wait on an
+    /// asset load at play time. Warmed for the whole library when a project opens.
+    private var audioTrackIDCache: [URL: CMPersistentTrackID] = [:]
+
+    /// Attaches `gaindB` to `item`. Synchronous on a cache hit, which is every track in a
+    /// loaded project; the async path only runs for a file imported this session.
+    private func applyGain(_ gaindB: Double, to item: AVPlayerItem, url: URL) {
+        if let trackID = audioTrackIDCache[url] {
+            item.audioMix = Self.audioMix(forGaindB: gaindB, trackID: trackID)
+            return
+        }
+
+        let asset = item.asset
+        Task { @MainActor [weak self] in
+            guard let trackID = try? await asset.loadTracks(withMediaType: .audio).first?.trackID
+            else { return }
+            self?.audioTrackIDCache[url] = trackID
+            item.audioMix = Self.audioMix(forGaindB: gaindB, trackID: trackID)
+        }
+    }
+
+    /// Pre-resolves the track IDs `applyGain` needs, so the first play of any song in a
+    /// freshly-opened project already comes out at the levelled volume.
+    private func warmAudioTrackIDCache() {
+        let urls = tracks.filter { $0.source == .local }.map(\.url)
+        Task { @MainActor [weak self] in
+            for url in urls where self?.audioTrackIDCache[url] == nil {
+                guard let trackID = try? await AVURLAsset(url: url)
+                    .loadTracks(withMediaType: .audio).first?.trackID
+                else { continue }
+                self?.audioTrackIDCache[url] = trackID
+            }
+        }
     }
 
     /// Spotify API key, shared by the workbook importer and the settings UI.
@@ -1328,13 +1378,20 @@ class PlayerController: ObservableObject {
     }
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
-    /// Set below the quietest material we ship (Bohemian National Polka measures ~-20 LUFS)
-    /// so balancing is done by attenuating the loud tracks. Aiming higher would need those
-    /// quiet tracks boosted past their peak headroom, which the clipping guard won't allow —
-    /// they'd stay noticeably soft next to everything else.
-    @Published var targetLoudnessLUFS: Double = -20.0
+    /// The streaming-standard target, which also puts local songs at the level Spotify plays
+    /// its own tracks at — the two sources sit side by side in a set, so they have to agree.
+    ///
+    /// Trade-off: this sits above some of the quieter material we ship, and boosting those
+    /// tracks all the way up would clip them. `gainCorrection` caps the boost at whatever
+    /// peak headroom the track actually has, so a quiet track with peaks near full scale
+    /// lands short of target rather than distorting.
+    @Published var targetLoudnessLUFS: Double = -14.0
     @Published var isBatchProcessingLoudness = false
     @Published var loudnessBatchProgress: Double = 0.0
+    /// A re-level asked for while one was already running, run once the current pass ends.
+    private var isRelevelQueued = false
+    /// `ContentView.onAppear` fires again on window changes; the launch pass runs once.
+    private var hasRunLaunchRelevel = false
     
     @Published var lastTrack: Track? = nil
     @Published var isBetweenSongs = false
@@ -1429,6 +1486,16 @@ class PlayerController: ObservableObject {
             importTotalCount = 0
             importCompletedCount = 0
         }
+    }
+
+    /// Switches an import that's already running from a spinner to a determinate bar, once
+    /// there's a count to show. Separate from `beginImportActivity` so supplying the total
+    /// late doesn't open a second activity that would need its own `finishImportActivity`.
+    func setImportTotal(_ total: Int, message: String? = nil) {
+        guard activeImportOperations > 0 else { return }
+        if let message { importStatusMessage = message }
+        importTotalCount = max(0, total)
+        importCompletedCount = 0
     }
 
     func advanceImportProgress() {
@@ -2072,14 +2139,14 @@ class PlayerController: ObservableObject {
         }
         
         let playerItem = AVPlayerItem(url: track.url)
-        
+
         // Preserves vocal & instrumental pitch perfectly when scaling playback rate
         playerItem.audioTimePitchAlgorithm = .spectral
-        
+
         // A gain cached by an older analysis version isn't trustworthy enough to apply —
         // play flat and re-measure, which swaps in the corrected mix once it lands.
         if track.loudnessAnalysisVersion >= Self.loudnessAnalysisVersion {
-            playerItem.audioMix = Self.audioMix(forGaindB: track.gainCorrectiondB)
+            applyGain(track.gainCorrectiondB, to: playerItem, url: track.url)
         } else {
             calculateLoudness(forTrackAt: index)
         }
@@ -2225,6 +2292,16 @@ class PlayerController: ObservableObject {
         return (gatedMean(gated.isEmpty ? aboveAbsoluteGate : gated), peak)
     }
 
+    /// Correction derived from a stored measurement, for when the sample peak that guarded
+    /// the original boost wasn't kept. Peak only ever caps a *boost*, so a track that needs
+    /// attenuating can be re-derived exactly; one that needs boosting returns nil and has to
+    /// be measured again.
+    private func gainCorrection(forLoudness loudness: Double) -> Double? {
+        let needed = targetLoudnessLUFS - loudness
+        guard needed <= 0 else { return nil }
+        return max(needed, -24.0)
+    }
+
     /// Correction needed to bring `loudness` to target, limited so a boost can't clip `peak`.
     private func gainCorrection(forLoudness loudness: Double, peak: Float) -> Double {
         let needed = targetLoudnessLUFS - loudness
@@ -2261,8 +2338,8 @@ class PlayerController: ObservableObject {
                 print("Auto-calculated ReplayGain for '\(track.title)': \(String(format: "%.1f LUFS, %+.1f dB", measurement.loudness, neededCorrection))")
 
                 // If the user happens to already be playing this track, update engine mix immediately
-                if self.currentIndex == index {
-                    self.avPlayer?.currentItem?.audioMix = Self.audioMix(forGaindB: neededCorrection)
+                if self.currentIndex == index, let item = self.avPlayer?.currentItem {
+                    self.applyGain(neededCorrection, to: item, url: track.url)
                 }
 
                 self.saveTrack(self.tracks[index])
@@ -2813,44 +2890,123 @@ class PlayerController: ObservableObject {
         }
     }
     
-    func calculateLoudnessForLibrary() {
-        guard !tracks.isEmpty else { return }
+    /// Brings out-of-date gain tags up to the current analysis, automatically and without
+    /// asking. Songs already on the current version are left untouched.
+    ///
+    /// A song that carries a stored `measuredLoudness` has already been analysed — only the
+    /// *gain derived from it* went out of date, and re-deriving that is arithmetic, not a
+    /// decode. So a migration resolves in place for nearly everything, and only songs with
+    /// no stored measurement (or that now need a boost, where the original peak wasn't kept)
+    /// fall through to the background pass.
+    ///
+    /// This makes `loudnessAnalysisVersion` the switch that forces a library-wide re-level:
+    /// bump it alongside any change to `measureLoudness`, `gainCorrection`, or
+    /// `targetLoudnessLUFS`, or the old corrections will be kept and quietly be wrong.
+    func relevelLibraryGain() {
+        // A pass works from a snapshot, so a project opened while one is running would be
+        // missed. Re-run at the end instead of dropping the request.
+        guard !isBatchProcessingLoudness else {
+            isRelevelQueued = true
+            return
+        }
+
+        // Header parse only, no decode. Runs whether or not anything needs re-measuring, so
+        // the first play of every song already has its gain attached.
+        warmAudioTrackIDCache()
+
+        let stale = tracks.filter {
+            $0.source == .local && $0.loudnessAnalysisVersion < Self.loudnessAnalysisVersion
+        }
+        guard !stale.isEmpty else { return }
+
+        let target = targetLoudnessLUFS
+        var needsMeasuring: [Track] = []
+
+        for track in stale {
+            guard let loudness = track.measuredLoudness,
+                  let correction = gainCorrection(forLoudness: loudness),
+                  let index = tracks.firstIndex(where: { $0.id == track.id })
+            else {
+                needsMeasuring.append(track)
+                continue
+            }
+
+            tracks[index].gainCorrectiondB = correction
+            tracks[index].loudnessAnalysisVersion = Self.loudnessAnalysisVersion
+            saveTrack(tracks[index])
+
+            if currentIndex == index, let item = avPlayer?.currentItem {
+                applyGain(correction, to: item, url: track.url)
+            }
+        }
+
+        let rederived = stale.count - needsMeasuring.count
+        guard !needsMeasuring.isEmpty else {
+            print(String(format: "Re-derived %d gain tag(s) to %.1f LUFS — nothing to measure",
+                         rederived, target))
+            return
+        }
+
         isBatchProcessingLoudness = true
         loudnessBatchProgress = 0.0
-        
+
+        // `isBatchProcessingLoudness` already raises the import overlay, so it needs a label
+        // of its own — otherwise the pass hides behind a stale "Importing media…" spinner
+        // left over from the project load that started it.
+        beginImportActivity(message: "Levelling song volume…", totalCount: needsMeasuring.count)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
-            let trackCount = self.tracks.count
 
-            for index in self.tracks.indices {
-                let track = self.tracks[index]
-                let measurement = track.source == .local ? self.measureLoudness(of: track) : nil
+            for (position, track) in needsMeasuring.enumerated() {
+                let measurement = self.measureLoudness(of: track)
 
                 DispatchQueue.main.async {
-                    self.loudnessBatchProgress = Double(index + 1) / Double(trackCount)
+                    self.loudnessBatchProgress = Double(position + 1) / Double(needsMeasuring.count)
+                    self.advanceImportProgress()
 
+                    // Matched by id, not index — the queue can be reordered mid-pass.
                     guard let measurement,
-                          self.tracks.indices.contains(index),
-                          self.tracks[index].id == track.id
+                          let index = self.tracks.firstIndex(where: { $0.id == track.id })
                     else { return }
 
-                    let neededCorrection = self.gainCorrection(forLoudness: measurement.loudness, peak: measurement.peak)
+                    let neededCorrection = self.gainCorrection(
+                        forLoudness: measurement.loudness,
+                        peak: measurement.peak
+                    )
                     self.tracks[index].measuredLoudness = measurement.loudness
                     self.tracks[index].gainCorrectiondB = neededCorrection
                     self.tracks[index].loudnessAnalysisVersion = Self.loudnessAnalysisVersion
                     self.saveTrack(self.tracks[index])
 
-                    if self.currentIndex == index {
-                        self.avPlayer?.currentItem?.audioMix = Self.audioMix(forGaindB: neededCorrection)
+                    if self.currentIndex == index, let item = self.avPlayer?.currentItem {
+                        self.applyGain(neededCorrection, to: item, url: track.url)
                     }
                 }
             }
-            
+
             DispatchQueue.main.async {
                 self.isBatchProcessingLoudness = false
+                self.loudnessBatchProgress = 0.0
+                self.finishImportActivity()
+                print(String(format: "Re-levelled %d track(s) to %.1f LUFS (%d re-derived without measuring)",
+                             needsMeasuring.count, target, rederived))
+
+                if self.isRelevelQueued {
+                    self.isRelevelQueued = false
+                    self.relevelLibraryGain()
+                }
             }
         }
+    }
+
+    /// Catches up any stale gain tags on whatever is already loaded when the app comes up. A
+    /// cold launch opens to the welcome screen with an empty queue, so this usually no-ops
+    /// and the pass that matters runs when a project opens.
+    func relevelLibraryGainOnLaunch() {
+        guard hasRunLaunchRelevel == false else { return }
+        hasRunLaunchRelevel = true
+        relevelLibraryGain()
     }
     
     // MARK: - Silence Trimming
@@ -3527,16 +3683,8 @@ class PlayerController: ObservableObject {
         }
 
         Task { [weak self] in
-            guard let self else { return }
-            await MainActor.run {
-                self.beginImportActivity(message: "Importing project package...")
-            }
-            defer {
-                Task { @MainActor in
-                    self.finishImportActivity()
-                }
-            }
-            await self.importProjectPackage(
+            // Progress reporting lives inside importProjectPackage, which knows the count.
+            await self?.importProjectPackage(
                 from: projectFolderURL,
                 clearExistingTracks: shouldClearExistingTracks
             )
@@ -4010,8 +4158,19 @@ class PlayerController: ObservableObject {
         from projectFolderURL: URL,
         clearExistingTracks: Bool
     ) async {
+        // Owned here rather than by each caller, so opening a .dbdj gets the same progress
+        // reporting as importing a project folder.
+        await MainActor.run { self.beginImportActivity(message: "Opening project…") }
+        defer { Task { @MainActor in self.finishImportActivity() } }
+
         do {
             let package = try loadProjectPackage(from: projectFolderURL)
+
+            // Song count is known now, so the spinner can become a real bar.
+            await MainActor.run {
+                self.setImportTotal(package.tracks.count, message: "Importing songs…")
+            }
+
             let filesFolderURL = projectFolderURL.appendingPathComponent("files", isDirectory: true)
             let artworkFolderURL = projectFolderURL.appendingPathComponent("artwork", isDirectory: true)
             let existingTracks = await MainActor.run { self.tracks }
@@ -4125,6 +4284,10 @@ class PlayerController: ObservableObject {
                 self.persistTracksToLibrary(self.tracks)
                 self.saveCurrentProjectPackage()
                 self.objectWillChange.send()
+
+                // Upgrades gain tags written by an older analysis; a project already on the
+                // current version opens with nothing to do.
+                self.relevelLibraryGain()
             }
 
             print("Imported project package from \(projectFolderURL.path)")
@@ -4167,26 +4330,33 @@ class PlayerController: ObservableObject {
             : try await spotifyService.importTracks(from: spotifyInputs, clientID: clientID)
         var spotifyIterator = fetchedSpotifyTracks.makeIterator()
 
+        // `if let` rather than `guard … else { continue }` so a song that can't be rebuilt
+        // still moves the progress bar instead of stalling it.
         for packageTrack in package.tracks {
             switch packageTrack.source {
             case .local:
-                guard var localTrack = try buildLocalTrack(
+                if var localTrack = try buildLocalTrack(
                     from: packageTrack,
                     filesFolderURL: filesFolderURL,
                     artworkFolderURL: artworkFolderURL
-                ) else { continue }
-                // Projects only store DJ-chosen art, so anything else comes back from the
-                // audio file's own tags here.
-                if localTrack.artwork == nil {
-                    localTrack.artwork = await embeddedArtwork(for: localTrack.url)
+                ) {
+                    // Projects only store DJ-chosen art, so anything else comes back from the
+                    // audio file's own tags here.
+                    if localTrack.artwork == nil {
+                        localTrack.artwork = await embeddedArtwork(for: localTrack.url)
+                    }
+                    importedTracks.append(localTrack)
                 }
-                importedTracks.append(localTrack)
             case .spotify:
-                guard includeSpotify, packageTrack.spotifyImportInput != nil else { continue }
-                guard var fetchedTrack = spotifyIterator.next() else { continue }
-                applyProjectPackage(packageTrack, to: &fetchedTrack)
-                importedTracks.append(fetchedTrack)
+                if includeSpotify,
+                   packageTrack.spotifyImportInput != nil,
+                   var fetchedTrack = spotifyIterator.next() {
+                    applyProjectPackage(packageTrack, to: &fetchedTrack)
+                    importedTracks.append(fetchedTrack)
+                }
             }
+
+            await MainActor.run { self.advanceImportProgress() }
         }
 
         return importedTracks
@@ -4465,9 +4635,25 @@ struct PointingHandCursorModifier: ViewModifier {
     }
 }
 
+struct ResizeCursorModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onHover { hovering in
+            if hovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
 extension View {
     func pointingHandCursor() -> some View {
         modifier(PointingHandCursorModifier())
+    }
+
+    func resizeLeftRightCursor() -> some View {
+        modifier(ResizeCursorModifier())
     }
 }
 
