@@ -16,9 +16,14 @@ enum ZipArchiveError: LocalizedError {
     case malformed
     case unsupportedZip64
     case entryTooLarge(String)
+    case notWritable(URL)
 
     var errorDescription: String? {
         switch self {
+        case .notWritable(let url):
+            return "Couldn't create \(url.lastPathComponent) in "
+                + "\(url.deletingLastPathComponent().path) — the app may not have permission "
+                + "to write there."
         case .unreadable:
             return "The file couldn't be read."
         case .malformed:
@@ -42,7 +47,11 @@ struct ZipArchive {
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
-        fileManager.createFile(atPath: destinationURL.path, contents: nil)
+        // Report a failed create here rather than letting it fall through to FileHandle,
+        // which reports the same problem as "the file doesn't exist" and hides the cause.
+        guard fileManager.createFile(atPath: destinationURL.path, contents: nil) else {
+            throw ZipArchiveError.notWritable(destinationURL)
+        }
 
         let handle = try FileHandle(forWritingTo: destinationURL)
         defer { try? handle.close() }

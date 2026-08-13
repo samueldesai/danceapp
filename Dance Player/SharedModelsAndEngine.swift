@@ -11,6 +11,7 @@ import AppKit
 import Combine
 import AVFoundation
 import CryptoKit
+import Accelerate
 import Network
 import Security
 import MediaPlayer
@@ -81,7 +82,11 @@ struct Track: Identifiable, Equatable {
     /// the closing dances out by name, and `nextSongLeadIn` gives them the definite article
     /// so it announces as "the Last Rotary Waltz".
     var formattedStylesDisplay: String {
-        let isJam = danceStyles.contains("Jam")
+        stylesDisplay(includingJam: true)
+    }
+
+    private func stylesDisplay(includingJam: Bool) -> String {
+        let isJam = includingJam && danceStyles.contains("Jam")
         let isWithStranger = danceStyles.contains("Dance with a Stranger")
         // "Cross-Step Waltz Mixer" already implies Cross-Step Waltz — listing both reads
         // as "Cross-Step Waltz or Cross-Step Waltz Mixer" instead of just the specific one.
@@ -111,6 +116,47 @@ struct Track: Identifiable, Equatable {
         }
 
         return result.isEmpty ? "—" : result
+    }
+
+    var isJam: Bool { danceStyles.contains("Jam") }
+    var isWithStranger: Bool { danceStyles.contains("Dance with a Stranger") }
+
+    /// Tempo changes through these by design — an accelerating waltz speeds up as it goes, and
+    /// the Romany Polka's choreography shifts pace — so a single BPM figure would be a fiction.
+    /// Measured spread on the Romany Polka is ~6 BPM between one window and the next.
+    var hasVariableTempo: Bool {
+        !danceStyles.isDisjoint(with: ["Accelerating Waltz", "Romany Polka"])
+    }
+
+    /// Mixers need teaching time on the floor, so the set clock budgets for them. Covers the
+    /// two named mixers plus anything the DJ filed under "Other" and called a mixer.
+    var countsAsMixer: Bool {
+        if !danceStyles.isDisjoint(with: ["Cross-Step Waltz Mixer", "'T Smidje Mixer"]) {
+            return true
+        }
+        return danceStyles.contains("Other") && customStyle.lowercased().contains("mixer")
+    }
+
+    /// The dance on its own, with the Jam framing dropped — the jam announcement supplies its
+    /// own wording, so "Jam (Cross-Step Waltz)" would read twice.
+    var audienceDanceOnlyDisplay: String {
+        var text = stylesDisplay(includingJam: false)
+        for (full, short) in Track.audienceStyleAbbreviations {
+            text = text.replacingOccurrences(of: full, with: short)
+        }
+        return text
+    }
+
+    /// Shortened for the floor only — the booth keeps the full name so the style picker and
+    /// guideline report stay searchable.
+    private static let audienceStyleAbbreviations = ["Night Club Two Step": "NC2S"]
+
+    var audienceStylesDisplay: String {
+        var text = formattedStylesDisplay
+        for (full, short) in Track.audienceStyleAbbreviations {
+            text = text.replacingOccurrences(of: full, with: short)
+        }
+        return text
     }
 
     /// These are specific named mixes rather than general dance styles, so they announce as
@@ -234,57 +280,35 @@ struct ProjectPackageOrderExport: Codable {
     }
 }
 
+extension NSImage {
+    /// Actual pixels, not `size`, which is in points and lies about a high-DPI image.
+    var pixelDimensions: (width: Int, height: Int)? {
+        guard let rep = representations.first else { return nil }
+        return (rep.pixelsWide, rep.pixelsHigh)
+    }
+}
+
 private extension NSImage {
-    /// Cover art is never shown larger than a few hundred points, so a project stores a
-    /// downscaled JPEG rather than a full-size PNG — a 1000x1000 cover goes from well over
-    /// a megabyte to a few tens of kilobytes, times every track in the set.
+    /// Stored at native resolution — no downscaling. This used to cap the longest edge at
+    /// 800px, which silently threw away the high-resolution art the cover-art picker fetches.
+    /// JPEG rather than PNG keeps a full-size cover to a few hundred kilobytes.
     var projectPackageData: Data? {
         guard let tiffData = tiffRepresentation,
               let source = NSBitmapImageRep(data: tiffData) else {
             return nil
         }
 
-        let maximumDimension = 800
-        let longestEdge = max(source.pixelsWide, source.pixelsHigh)
-        guard longestEdge > maximumDimension else {
-            return source.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
-        }
-
-        let scale = Double(maximumDimension) / Double(longestEdge)
-        let targetSize = NSSize(
-            width: (Double(source.pixelsWide) * scale).rounded(),
-            height: (Double(source.pixelsHigh) * scale).rounded()
-        )
-
-        guard let resized = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(targetSize.width),
-            pixelsHigh: Int(targetSize.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            return source.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
-        }
-
-        resized.size = targetSize
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resized)
-        source.draw(in: NSRect(origin: .zero, size: targetSize))
-        NSGraphicsContext.restoreGraphicsState()
-
-        return resized.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+        return source.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
     }
 }
 
 private extension Track {
 
+    /// Gated on `hasCustomArtwork` rather than on source: a Spotify track normally re-fetches
+    /// its own art on import, but art the DJ went and downloaded has to be kept or it would
+    /// silently revert to Spotify's 640px version.
     var persistableArtworkData: Data? {
-        guard source == .local, hasCustomArtwork else { return nil }
+        guard hasCustomArtwork else { return nil }
         return artwork?.projectPackageData
     }
 }
@@ -342,7 +366,9 @@ struct ProjectPackageTrack: Codable {
         self.bundledFileName = bundledFileName
         self.hasCustomArtwork = track.hasCustomArtwork
         self.artworkFileName = track.source == .local ? artworkFileName : nil
-        self.artworkData = (track.source == .local && artworkFileName == nil) ? track.persistableArtworkData : nil
+        // No sidecar file (which the exporter only writes for local songs) means the art rides
+        // inline instead — that's how a Spotify track's downloaded art gets kept.
+        self.artworkData = artworkFileName == nil ? track.persistableArtworkData : nil
     }
 
     var persistedTrack: PersistedTrack {
@@ -545,6 +571,10 @@ struct PopularEdit: Identifiable, CaseIterable {
     let resourceName: String
     let fileExtension: String
     let danceStyles: Set<String>
+    /// Set where the edit's tempo is known. These are fixed recordings we ship, so a published
+    /// figure beats an estimate — and detection leaves a known tempo alone rather than
+    /// replacing it with its own reading.
+    var knownBPM: Int? = nil
 
     var bundledURL: URL? {
         Bundle.main.url(forResource: resourceName, withExtension: fileExtension, subdirectory: "audio files")
@@ -557,14 +587,16 @@ struct PopularEdit: Identifiable, CaseIterable {
             displayName: "Barbie Line Dance",
             resourceName: "Barbie Line Dance",
             fileExtension: "mp3",
-            danceStyles: ["Barbie Line Dance"]
+            danceStyles: ["Barbie Line Dance"],
+            knownBPM: 110
         ),
         PopularEdit(
             id: "bohemian-national-polka",
             displayName: "Bohemian National Polka",
             resourceName: "Bohemian National Polka",
             fileExtension: "mp3",
-            danceStyles: ["Bohemian National Polka"]
+            danceStyles: ["Bohemian National Polka"],
+            knownBPM: 104
         ),
         PopularEdit(
             id: "dawn-mazurka",
@@ -585,7 +617,8 @@ struct PopularEdit: Identifiable, CaseIterable {
             displayName: "Tokyo Polka",
             resourceName: "Tokyo Polka - Hatsune Miku",
             fileExtension: "mp3",
-            danceStyles: ["Tokyo Polka"]
+            danceStyles: ["Tokyo Polka"],
+            knownBPM: 120
         ),
         PopularEdit(
             id: "'t-smidje-mixer",
@@ -1286,16 +1319,102 @@ private struct Biquad {
     }
 }
 
+// MARK: - High-resolution cover art
+
+/// Cover art from Apple's iTunes Search API, which needs no key and serves up to 3000×3000.
+/// Spotify's Web API caps album art at 640×640, so this is the source when the DJ explicitly
+/// asks for better art — including for Spotify tracks.
+enum ITunesArtworkLookup {
+    /// The `100x100bb` segment of an artwork URL is a resize instruction, not a fixed asset,
+    /// so any size up to 3000 can be requested. Anything larger is served as 3000.
+    static let preferredSize = 2000
+
+    private struct SearchResponse: Decodable {
+        struct Result: Decodable {
+            let trackName: String?
+            let artistName: String?
+            let collectionName: String?
+            let artworkUrl100: String?
+        }
+        let results: [Result]
+    }
+
+    /// Several matches for one song, so the DJ picks the right release rather than having the
+    /// first hit overwrite art they were happy with.
+    static func candidates(title: String, artist: String, limit: Int = 6) async -> [ITunesArtworkCandidate] {
+        var terms = [title]
+        let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedArtist.isEmpty, trimmedArtist != "Unknown Artist" {
+            terms.append(trimmedArtist)
+        }
+
+        let term = terms.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: term),
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+        ]
+
+        guard let searchURL = components.url,
+              let (data, _) = try? await URLSession.shared.data(from: searchURL),
+              let response = try? JSONDecoder().decode(SearchResponse.self, from: data)
+        else { return [] }
+
+        var candidates: [ITunesArtworkCandidate] = []
+        var seenAlbums = Set<String>()
+
+        for result in response.results {
+            guard let thumbnail = result.artworkUrl100 else { continue }
+
+            // One entry per album — the same cover repeated is just noise to choose between.
+            let album = result.collectionName ?? thumbnail
+            guard seenAlbums.insert(album).inserted else { continue }
+
+            let sized = thumbnail.replacingOccurrences(
+                of: "100x100bb",
+                with: "\(preferredSize)x\(preferredSize)bb"
+            )
+            guard let artworkURL = URL(string: sized),
+                  let (imageData, _) = try? await URLSession.shared.data(from: artworkURL),
+                  let image = NSImage(data: imageData)
+            else { continue }
+
+            candidates.append(ITunesArtworkCandidate(
+                trackName: result.trackName ?? title,
+                artistName: result.artistName ?? artist,
+                albumName: result.collectionName ?? "",
+                image: image
+            ))
+        }
+
+        return candidates
+    }
+}
+
+struct ITunesArtworkCandidate: Identifiable {
+    let id = UUID()
+    let trackName: String
+    let artistName: String
+    let albumName: String
+    let image: NSImage
+
+    var resolutionLabel: String {
+        guard let size = image.pixelDimensions else { return "—" }
+        return "\(size.width)×\(size.height)"
+    }
+}
+
 // MARK: - Audio Engine & Controller
 class PlayerController: ObservableObject {
-    /// Bump when `measureLoudness` or the loudness target changes, to re-measure tracks
-    /// cached by an older version. v2: target moved to -14 LUFS, and the gain mix went from
-    /// silently inert to actually applied — every v1 correction is wrong on both counts.
+    /// Bump when `measureLoudness`, `gainCorrection` or the target changes. v2: -14 LUFS,
+    /// and the gain mix went from silently inert to actually applied.
     static let loudnessAnalysisVersion = 2
 
-    /// `AVAudioMix` matches its input parameters to an asset track by ID. Parameters built
-    /// with the plain initializer carry `kCMPersistentTrackID_Invalid`, match nothing, and
-    /// are dropped without error — so the track ID is what makes the gain real.
+    /// Parameters built with the plain initializer carry `kCMPersistentTrackID_Invalid`,
+    /// match no track, and are dropped without error — the ID is what makes the gain real.
     static func audioMix(forGaindB gaindB: Double, trackID: CMPersistentTrackID) -> AVMutableAudioMix {
         let mix = AVMutableAudioMix()
         let parameters = AVMutableAudioMixInputParameters()
@@ -1305,12 +1424,10 @@ class PlayerController: ObservableObject {
         return mix
     }
 
-    /// Audio track IDs resolved per file, so applying a gain doesn't have to wait on an
-    /// asset load at play time. Warmed for the whole library when a project opens.
+    /// Resolved per file so applying a gain needn't await an asset load at play time.
     private var audioTrackIDCache: [URL: CMPersistentTrackID] = [:]
 
-    /// Attaches `gaindB` to `item`. Synchronous on a cache hit, which is every track in a
-    /// loaded project; the async path only runs for a file imported this session.
+    /// Synchronous on a cache hit; the async path only runs for a file new this session.
     private func applyGain(_ gaindB: Double, to item: AVPlayerItem, url: URL) {
         if let trackID = audioTrackIDCache[url] {
             item.audioMix = Self.audioMix(forGaindB: gaindB, trackID: trackID)
@@ -1326,8 +1443,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Pre-resolves the track IDs `applyGain` needs, so the first play of any song in a
-    /// freshly-opened project already comes out at the levelled volume.
+    /// Pre-resolves track IDs so the first play of any song is already levelled.
     private func warmAudioTrackIDCache() {
         let urls = tracks.filter { $0.source == .local }.map(\.url)
         Task { @MainActor [weak self] in
@@ -1350,6 +1466,115 @@ class PlayerController: ObservableObject {
     @Published var isPresentingAdvancedSettings = false
     @Published var isPresentingSpotifyKeyEditor = false
     @Published var isDisplayWindowOpen = false
+    @Published var isCoverArtWindowOpen = false
+
+    @Published var isDraggingDivider = false
+    @Published var isAdvancedSettingsOpen = false
+
+    /// Per-frame work in the DJ view is paused while the divider is being dragged and while
+    /// Advanced Settings is up. The audience screen is unaffected.
+    var animationsEnabled: Bool {
+        !isImportingContent && !isDraggingDivider && !isAdvancedSettingsOpen
+    }
+
+    @Published var isDetectingBPM = false
+    @Published var bpmDetectionCompleted = 0
+    @Published var bpmDetectionTotal = 0
+
+    @Published var bpmDetectionOnImport: Bool =
+        UserDefaults.standard.bool(forKey: "DancePlayer.bpmDetectionOnImport") {
+        didSet {
+            UserDefaults.standard.set(bpmDetectionOnImport, forKey: "DancePlayer.bpmDetectionOnImport")
+        }
+    }
+
+    // MARK: - Undo
+
+    private struct QueueSnapshot {
+        let tracks: [Track]
+        let currentTrackID: UUID?
+        let label: String
+    }
+
+    /// Whole-queue snapshots rather than per-operation inverses: the queue is small, and a
+    /// snapshot can't get out of step with the operation it's meant to reverse.
+    private var undoStack: [QueueSnapshot] = []
+    /// Drives the Edit menu's title and enabled state.
+    @Published var undoActionLabel: String? = nil
+
+    func recordUndoSnapshot(_ label: String) {
+        undoStack.append(QueueSnapshot(tracks: tracks, currentTrackID: currentTrack?.id, label: label))
+        if undoStack.count > 25 { undoStack.removeFirst() }
+        undoActionLabel = label
+    }
+
+    func undoLastChange() {
+        guard let snapshot = undoStack.popLast() else { return }
+
+        tracks = snapshot.tracks
+        // Followed by id — the restored queue may hold the song at a different position.
+        currentIndex = snapshot.currentTrackID.flatMap { id in
+            tracks.firstIndex(where: { $0.id == id })
+        }
+        undoActionLabel = undoStack.last?.label
+
+        if currentIndex == nil {
+            avPlayer?.pause()
+            isPlaying = false
+        }
+
+        synchronizeActiveTrackSettings()
+        objectWillChange.send()
+    }
+
+    // MARK: - Set clock
+
+    /// Nil until the DJ configures it, and deliberately never persisted — every night gets its
+    /// own end time, so a stale one from last week would be worse than none.
+    /// On the controller rather than the view so the View menu can open it too.
+    @Published var isPresentingSetClockConfig = false
+    @Published var setClockEndTime: Date? = nil
+    /// The DJ's estimate of the gap between songs — announcements, finding a partner.
+    @Published var setClockPauseSeconds: Double = 10
+
+    /// Fixed on purpose, not configurable: a jam runs long because the floor circles up, and a
+    /// mixer needs teaching time before it starts.
+    static let jamAllowanceSeconds: Double = 4 * 60
+    static let mixerAllowanceSeconds: Double = 90
+
+    var isSetClockConfigured: Bool { setClockEndTime != nil }
+
+    /// Songs still to come, counting the one playing now.
+    private var setClockRemainingTracks: [Track] {
+        let start = currentIndex ?? 0
+        guard start < tracks.count else { return [] }
+        return tracks[start...].filter { !$0.isSkipped }
+    }
+
+    var setClockRemainingSeconds: Double {
+        let remaining = setClockRemainingTracks
+        guard !remaining.isEmpty else { return 0 }
+
+        var total = remaining.reduce(0.0) { $0 + $1.effectiveDuration }
+        total += setClockPauseSeconds * Double(remaining.count)
+        total += Self.jamAllowanceSeconds * Double(remaining.filter(\.isJam).count)
+        total += Self.mixerAllowanceSeconds * Double(remaining.filter(\.countsAsMixer).count)
+
+        // Don't re-count the part of the current song already played.
+        if currentIndex != nil { total -= currentTime }
+
+        return max(0, total)
+    }
+
+    var setClockProjectedEnd: Date {
+        Date().addingTimeInterval(setClockRemainingSeconds)
+    }
+
+    /// Positive means the set is projected to run past the target.
+    var setClockDeltaSeconds: Double? {
+        guard let setClockEndTime else { return nil }
+        return setClockProjectedEnd.timeIntervalSince(setClockEndTime)
+    }
 
     @Published var projectName: String = "Dance Player Project"
     @Published var projectAutosaveParentURL: URL? = nil
@@ -1378,13 +1603,9 @@ class PlayerController: ObservableObject {
     }
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
-    /// The streaming-standard target, which also puts local songs at the level Spotify plays
-    /// its own tracks at — the two sources sit side by side in a set, so they have to agree.
-    ///
-    /// Trade-off: this sits above some of the quieter material we ship, and boosting those
-    /// tracks all the way up would clip them. `gainCorrection` caps the boost at whatever
-    /// peak headroom the track actually has, so a quiet track with peaks near full scale
-    /// lands short of target rather than distorting.
+    /// The streaming standard, which also matches the level Spotify plays its own tracks at.
+    /// Sits above some quiet material: `gainCorrection` caps each boost at the track's real
+    /// peak headroom, so those land short of target rather than clipping.
     @Published var targetLoudnessLUFS: Double = -14.0
     @Published var isBatchProcessingLoudness = false
     @Published var loudnessBatchProgress: Double = 0.0
@@ -1434,6 +1655,7 @@ class PlayerController: ObservableObject {
     private var isPresentingCloseSavePrompt = false
     private var isHandlingSongEnd = false
     private var displayWindowController: NSWindowController?
+    private var coverArtWindowController: NSWindowController?
     private var autoplayCountdownTask: Task<Void, Never>?
     private let spotifyService = SpotifyService()
     private var spacebarKeyMonitor: Any?
@@ -1467,6 +1689,7 @@ class PlayerController: ObservableObject {
         setupRemoteCommandCenter()
         setupSpacebarKeyMonitor()
     }
+
 
     func beginImportActivity(message: String? = nil, totalCount: Int? = nil) {
         activeImportOperations += 1
@@ -1526,8 +1749,32 @@ class PlayerController: ObservableObject {
         return tracks.prefix(index + 1).filter { !$0.isSkipped }.count
     }
 
+    /// Row actions address songs by id. A row's position is only valid until the next
+    /// reorder, and `ForEach` moves existing views rather than rebuilding them — so an index
+    /// captured in a row's closure ends up pointing at whatever song now sits there.
+    func toggleSkipTrack(id: UUID) {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
+        toggleSkipTrack(at: index)
+    }
+
+    func removeTrack(id: UUID) {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
+        removeTrack(at: index)
+    }
+
+    func play(id: UUID) {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
+        play(index: index)
+    }
+
+    /// A row's live position, for the few places that reach into `tracks` directly.
+    func trackIndex(for id: UUID) -> Int? {
+        tracks.firstIndex(where: { $0.id == id })
+    }
+
     func toggleSkipTrack(at index: Int) {
         guard tracks.indices.contains(index) else { return }
+        recordUndoSnapshot(tracks[index].isSkipped ? "Unskip Song" : "Skip Song")
 
         tracks[index].isSkipped.toggle()
         saveTrack(tracks[index])
@@ -1620,19 +1867,36 @@ class PlayerController: ObservableObject {
 
     /// Spacebar toggles play/pause, EXCEPT while the user is typing in any text field
 
+    /// Escape, Return, Tab and the arrows, which AppKit still needs for dismissing sheets,
+    /// firing default buttons and moving focus.
+    private static let passthroughKeyCodes: Set<UInt16> = [53, 36, 76, 48, 123, 124, 125, 126]
+
     private func setupSpacebarKeyMonitor() {
         spacebarKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-
-            // keyCode 49 == spacebar
-            guard event.keyCode == 49 else { return event }
 
             if self.isCurrentlyEditingText() {
                 return event // let the text field handle it normally
             }
 
-            self.togglePlayPause()
-            return nil // swallow so it doesn't also trigger button focus / scroll, etc.
+            // Menu shortcuts belong to the menu bar.
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if modifiers.contains(.command) || modifiers.contains(.control) {
+                return event
+            }
+
+            // keyCode 49 == spacebar
+            if event.keyCode == 49 {
+                self.togglePlayPause()
+                return nil // swallow so it doesn't also trigger button focus / scroll, etc.
+            }
+
+            if Self.passthroughKeyCodes.contains(event.keyCode) {
+                return event
+            }
+
+            // An unhandled key-down is what makes macOS beep.
+            return nil
         }
     }
 
@@ -1751,30 +2015,117 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Zips to a sibling temp file and swaps it in, so quitting mid-save can't leave a
-    /// half-written `.dbdj` where a working project used to be.
+    /// Zips into our own container, then overwrites the `.dbdj` in place. The sandbox grants
+    /// read-write to the picked *file*, not its folder, so a sibling temp (which `replaceItemAt`
+    /// and `.atomic` both need) can't be created. Staged in full first, so an interrupted write
+    /// leaves a complete archive behind.
     private func writeProjectFile(from projectFolderURL: URL, to destinationURL: URL) throws {
         let fileManager = FileManager.default
-        let scratchURL = destinationURL
-            .deletingLastPathComponent()
+        let scratchURL = projectsWorkingParentURL
             .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp")
 
         try ZipArchive.zip(contentsOf: projectFolderURL, to: scratchURL)
 
+        let accessedScope = destinationURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessedScope { destinationURL.stopAccessingSecurityScopedResource() }
+        }
+
         if fileManager.fileExists(atPath: destinationURL.path) {
-            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: scratchURL)
+            try overwriteFile(at: destinationURL, withContentsOf: scratchURL)
         } else {
+            // A path we just created ourselves (Save As) — the move is allowed.
             try fileManager.moveItem(at: scratchURL, to: destinationURL)
+            return
+        }
+
+        try? fileManager.removeItem(at: scratchURL)
+    }
+
+    /// Streams `sourceURL` over an existing file, chunk by chunk, so a 180MB project doesn't
+    /// have to be held in memory to be saved.
+    private func overwriteFile(at destinationURL: URL, withContentsOf sourceURL: URL) throws {
+        let reader = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? reader.close() }
+
+        let writer = try FileHandle(forWritingTo: destinationURL)
+        defer { try? writer.close() }
+
+        try writer.truncate(atOffset: 0)
+
+        while let chunk = try reader.read(upToCount: 4 << 20), !chunk.isEmpty {
+            try writer.write(contentsOf: chunk)
         }
     }
 
-    /// Writes any debounced autosave straight away and calls back once it has actually landed
-    /// on disk.
-    ///
-    /// Saving is asynchronous — a 350ms debounce, then a full package write and `.dbdj` re-zip
-    /// on `projectSaveQueue`. Nothing used to wait for that, so quitting inside the window
-    /// killed the write and the edit was gone on relaunch. `projectSaveQueue` is serial, so a
-    /// block enqueued behind the save can only run once the save has finished.
+    /// Filed as DJ-chosen art, the category written into the project and library cache — so it's
+    /// on disk immediately and never needs the network again. Spotify tracks included.
+    func applyChosenArtwork(_ artwork: NSImage, toTrackID id: UUID) {
+        guard let index = trackIndex(for: id) else { return }
+
+        tracks[index].artwork = artwork
+        tracks[index].hasCustomArtwork = true
+        saveTrack(tracks[index])
+
+        if currentIndex == index {
+            updateNowPlayingInfo()
+        }
+    }
+
+    /// Saves and unloads the project when the last window closes. The app keeps running, so
+    /// without this the project is still loaded when a window reopens and the DJ has to quit
+    /// to get back to the welcome screen.
+    func closeProjectAfterLastWindowClosed() {
+        guard hasLoadedProject else { return }
+
+        // Queued while the tracks are still in place; the export reads them off the queue.
+        projectAutosaveTask?.cancel()
+        projectAutosaveTask = nil
+        saveCurrentProjectPackage()
+
+        // Back to the welcome screen immediately: a large project takes seconds to write, and
+        // reopening inside that window used to bring back the project just closed.
+        hasLoadedProject = false
+        autosaveEnabled = false
+        stopPlaybackForUnload()
+
+        // Emptied only once the save has read it; same serial queue, so it can't overtake.
+        projectSaveQueue.async { [weak self] in
+            DispatchQueue.main.async { self?.clearLoadedProject() }
+        }
+    }
+
+    private func stopPlaybackForUnload() {
+        avPlayer?.pause()
+        removeTimeObserver()
+        avPlayer = nil
+        stopSpotifyProgressMonitor()
+        pauseAutoplayCountdown()
+        closeDisplayWindow()
+
+        isPlaying = false
+        isBetweenSongs = false
+        showThankYouScreen = false
+        currentIndex = nil
+        lastTrack = nil
+        currentTime = 0
+        duration = 0
+        selectedTrackForEditing = nil
+        pendingWorkbookImport = nil
+    }
+
+    private func clearLoadedProject() {
+        tracks.removeAll()
+        projectFolderURL = nil
+        projectFileURL = nil
+        projectWorkingFolderURL = nil
+        projectAutosaveParentURL = nil
+        hasRunLaunchRelevel = false
+    }
+
+    /// Writes any debounced autosave now and calls back once it has landed on disk. Saving is
+    /// a 350ms debounce then a background re-zip; nothing used to wait for it, so quitting in
+    /// that window lost the edit. `projectSaveQueue` is serial, hence the trailing block.
     func flushPendingSaves(completion: @escaping () -> Void) {
         projectAutosaveTask?.cancel()
         projectAutosaveTask = nil
@@ -1916,6 +2267,14 @@ class PlayerController: ObservableObject {
     }()
 
     /// The bundled file backing this track, if the app already ships its audio.
+    /// The Popular Edit a track came from, matched by the bundled file it plays.
+    func popularEdit(for track: Track) -> PopularEdit? {
+        guard let fileName = bundledFileName(for: track) else { return nil }
+        return PopularEdit.allCases.first {
+            "\($0.resourceName).\($0.fileExtension)" == fileName
+        }
+    }
+
     private func bundledFileName(for track: Track) -> String? {
         if let fileName = bundledPopularEditFileNames[track.songHash] { return fileName }
         if track.url.isFileURL, isBundledResource(track.url) { return track.url.lastPathComponent }
@@ -2193,7 +2552,8 @@ class PlayerController: ObservableObject {
             
             let relativeSeconds = max(0, (absoluteSeconds - currentTrack.startTime) * currentTrack.speedMultiplier)
             
-            if !self.isDraggingSlider {
+            // Skipped while suppressed — republishing 20x a second re-renders everything.
+            if !self.isDraggingSlider, self.animationsEnabled {
                 self.currentTime = relativeSeconds
             }
             
@@ -2220,6 +2580,153 @@ class PlayerController: ObservableObject {
     ///
     /// Implements ITU-R BS.1770 / EBU R128: K-weighting, 400ms blocks overlapping 75%,
     /// a -70 LUFS absolute gate and a -10 LU relative gate.
+    /// Re-derives gain after a tempo change; the compressor render isn't repeated. This is about
+    /// headroom, not level: the phase vocoder holds pitch so loudness barely moves (-0.08 dB at
+    /// ±5%), but resynthesis overshoots peaks (0.97 measured 1.13 at +5%) and would clip a boost
+    /// sized against the unstretched peak.
+    func relevelGainForTempoChange(trackID: UUID) {
+        guard let index = trackIndex(for: trackID), tracks[index].source == .local else { return }
+        let track = tracks[index]
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self,
+                  let measurement = self.measureLoudnessAtPlaybackSpeed(of: track)
+            else { return }
+
+            let correction = self.gainCorrection(
+                forLoudness: measurement.loudness,
+                peak: measurement.peak
+            )
+
+            DispatchQueue.main.async {
+                // Dropped if the tempo moved again while this was measuring — a later pass
+                // will have the right answer.
+                guard let index = self.trackIndex(for: trackID),
+                      self.tracks[index].tempoPercentage == track.tempoPercentage
+                else { return }
+
+                self.tracks[index].gainCorrectiondB = correction
+                self.saveTrack(self.tracks[index])
+
+                if self.currentIndex == index, let item = self.avPlayer?.currentItem {
+                    self.applyGain(correction, to: item, url: self.tracks[index].url)
+                }
+
+                print(String(
+                    format: "Re-levelled '%@' for %+.1f%% tempo: %.1f LUFS peak %.2f, %+.1f dB",
+                    track.title, track.tempoPercentage,
+                    measurement.loudness, measurement.peak, correction
+                ))
+            }
+        }
+    }
+
+    /// Measures the track as it will actually be heard: trimmed, and time-stretched by its
+    /// tempo through the same `.spectral` algorithm playback uses. Falls back to reading the
+    /// file directly at normal speed, which is much cheaper than running the vocoder.
+    private func measureLoudnessAtPlaybackSpeed(of track: Track) -> (loudness: Double, peak: Float)? {
+        guard track.tempoPercentage != 0 else { return measureLoudness(of: track) }
+
+        let asset = AVURLAsset(url: track.url)
+
+        // Blocking is fine here: this only ever runs on the measurement queue.
+        let ready = DispatchSemaphore(value: 0)
+        var sourceTrack: AVAssetTrack?
+        var assetDuration: CMTime = .zero
+        Task {
+            sourceTrack = try? await asset.loadTracks(withMediaType: .audio).first
+            assetDuration = (try? await asset.load(.duration)) ?? .zero
+            ready.signal()
+        }
+        ready.wait()
+
+        guard let sourceTrack, assetDuration.seconds > 0 else { return nil }
+
+        let start = CMTime(seconds: track.startTime, preferredTimescale: 600)
+        let end = CMTime(seconds: track.endTime ?? assetDuration.seconds, preferredTimescale: 600)
+        let playedRange = CMTimeRange(start: start, end: end)
+        guard playedRange.duration.seconds > 0 else { return nil }
+
+        let composition = AVMutableComposition()
+        guard let compositionTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ), (try? compositionTrack.insertTimeRange(playedRange, of: sourceTrack, at: .zero)) != nil
+        else { return nil }
+
+        let stretched = CMTime(
+            seconds: playedRange.duration.seconds / track.speedMultiplier,
+            preferredTimescale: 600
+        )
+        compositionTrack.scaleTimeRange(
+            CMTimeRange(start: .zero, duration: playedRange.duration),
+            toDuration: stretched
+        )
+
+        guard let reader = try? AVAssetReader(asset: composition) else { return nil }
+
+        let sampleRate = 48000.0
+        let channelCount = 2
+        let output = AVAssetReaderAudioMixOutput(
+            audioTracks: composition.tracks(withMediaType: .audio),
+            audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsNonInterleaved: false,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: channelCount,
+            ]
+        )
+        output.audioTimePitchAlgorithm = .spectral
+        reader.add(output)
+        reader.startReading()
+
+        var shelf = [Biquad](repeating: .kWeightingShelf(sampleRate: sampleRate), count: channelCount)
+        var highPass = [Biquad](repeating: .kWeightingHighPass(sampleRate: sampleRate), count: channelCount)
+        let segmentFrames = Int((sampleRate * 0.1).rounded())
+        var segmentEnergy = [[Double]](repeating: [], count: channelCount)
+        var runningEnergy = [Double](repeating: 0, count: channelCount)
+        var framesInSegment = 0
+        var peak: Float = 0
+
+        while let buffer = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+            var length = 0
+            var pointer: UnsafeMutablePointer<Int8>?
+            CMBlockBufferGetDataPointer(
+                block, atOffset: 0, lengthAtOffsetOut: nil,
+                totalLengthOut: &length, dataPointerOut: &pointer
+            )
+            guard let pointer else { continue }
+
+            pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
+                for frame in stride(from: 0, to: length / 4, by: channelCount) {
+                    for channel in 0..<channelCount {
+                        let sample = samples[frame + channel]
+                        peak = max(peak, abs(sample))
+                        let weighted = highPass[channel].process(shelf[channel].process(Double(sample)))
+                        runningEnergy[channel] += weighted * weighted
+                    }
+                    framesInSegment += 1
+                    if framesInSegment == segmentFrames {
+                        for channel in 0..<channelCount {
+                            segmentEnergy[channel].append(runningEnergy[channel])
+                            runningEnergy[channel] = 0
+                        }
+                        framesInSegment = 0
+                    }
+                }
+            }
+        }
+
+        return Self.gatedLoudness(
+            segmentEnergy: segmentEnergy,
+            segmentFrames: segmentFrames,
+            peak: peak
+        )
+    }
+
     private func measureLoudness(of track: Track) -> (loudness: Double, peak: Float)? {
         guard let file = try? AVAudioFile(forReading: track.url) else { return nil }
 
@@ -2277,8 +2784,25 @@ class PlayerController: ObservableObject {
             frame += Int64(sampleCount)
         }
 
-        let segmentCount = segmentEnergy[0].count
-        guard segmentCount >= 4 else { return nil }
+        return Self.gatedLoudness(
+            segmentEnergy: segmentEnergy,
+            segmentFrames: segmentFrames,
+            peak: peak
+        )
+    }
+
+    /// The BS.1770 gating stage, shared by the file reader and the tempo-stretched reader so
+    /// the two can't drift apart: 400ms blocks from 100ms segments, a -70 LUFS absolute gate
+    /// and a -10 LU relative gate.
+    private static func gatedLoudness(
+        segmentEnergy: [[Double]],
+        segmentFrames: Int,
+        peak: Float
+    ) -> (loudness: Double, peak: Float)? {
+        guard let channelCount = segmentEnergy.first.map({ _ in segmentEnergy.count }),
+              let segmentCount = segmentEnergy.first?.count,
+              segmentCount >= 4
+        else { return nil }
 
         var blockLoudness: [Double] = []
         for start in 0...(segmentCount - 4) {
@@ -2310,22 +2834,494 @@ class PlayerController: ObservableObject {
         return (gatedMean(gated.isEmpty ? aboveAbsoluteGate : gated), peak)
     }
 
-    /// Correction derived from a stored measurement, for when the sample peak that guarded
-    /// the original boost wasn't kept. Peak only ever caps a *boost*, so a track that needs
-    /// attenuating can be re-derived exactly; one that needs boosting returns nil and has to
-    /// be measured again.
+    // MARK: - BPM detection
+
+    /// Spectral-flux onset envelope, then autocorrelation weighted by a log-Gaussian tempo prior
+    /// and a comb over the lag's harmonics. Validated to within 0.1 BPM on known tempos (BNP 104,
+    /// Barbie 110) and 1 BPM on synthetic click tracks from 72 to 186.
+    func detectBPM(of track: Track) -> Double? {
+        guard !track.hasVariableTempo else { return nil }
+        // A shipped edit with a published tempo is authoritative; don't estimate over it.
+        if let known = popularEdit(for: track)?.knownBPM { return Double(known) }
+        guard let file = try? AVAudioFile(forReading: track.url) else { return nil }
+
+        let format = file.processingFormat
+        let sampleRate = format.sampleRate
+        let channelCount = Int(format.channelCount)
+        guard sampleRate > 0, channelCount > 0, file.length > 0 else { return nil }
+
+        let firstFrame = max(0, Int64(track.startTime * sampleRate))
+        let lastFrame = min(file.length, track.endTime.map { Int64($0 * sampleRate) } ?? file.length)
+        guard lastFrame > firstFrame else { return nil }
+
+        // 2048-sample window, hop chosen for an ~86Hz envelope whatever the file's rate.
+        let fftSize = 2048
+        let hop = max(1, Int((sampleRate / 86.0).rounded()))
+        let envelopeRate = sampleRate / Double(hop)
+
+        guard let onsets = Self.spectralFluxEnvelope(
+            file: file,
+            firstFrame: firstFrame,
+            lastFrame: lastFrame,
+            channelCount: channelCount,
+            fftSize: fftSize,
+            hop: hop
+        ), onsets.count > 16 else { return nil }
+
+        return Self.tempo(
+            fromOnsets: onsets,
+            envelopeRate: envelopeRate,
+            expectedRange: guidelineTempoRange(forStyles: track.danceStyles)
+        )
+    }
+
+    private static func spectralFluxEnvelope(
+        file: AVAudioFile,
+        firstFrame: Int64,
+        lastFrame: Int64,
+        channelCount: Int,
+        fftSize: Int,
+        hop: Int
+    ) -> [Double]? {
+        let format = file.processingFormat
+        let readCapacity: AVAudioFrameCount = 65536
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: readCapacity) else { return nil }
+
+        let log2n = vDSP_Length(log2(Double(fftSize)))
+        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else { return nil }
+        defer { vDSP_destroy_fftsetup(fftSetup) }
+
+        // Denormalized: peak 1.0. The normalized variant scales the window down by ~1/N,
+        // and log1p is nonlinear, so that scale would change the flux profile itself.
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_DENORM))
+
+        let halfSize = fftSize / 2
+        var real = [Float](repeating: 0, count: halfSize)
+        var imaginary = [Float](repeating: 0, count: halfSize)
+        var magnitudesSquared = [Float](repeating: 0, count: halfSize)
+
+        var pending: [Float] = []          // mono samples not yet consumed by a frame
+        var windowed = [Float](repeating: 0, count: fftSize)
+        // Log magnitudes are kept between frames rather than recomputed: the previous frame's
+        // values are already known, which halves the transcendental work.
+        var logMagnitude = [Float](repeating: 0, count: halfSize + 1)
+        var previousLogMagnitude = [Float](repeating: 0, count: halfSize + 1)
+        var magnitude = [Float](repeating: 0, count: halfSize + 1)
+        var rectified = [Float](repeating: 0, count: halfSize + 1)
+        var havePrevious = false
+        var flux: [Double] = []
+        var binCount = Int32(halfSize + 1)
+        var interiorCount = Int32(halfSize - 1)
+        var halfScale: Float = 0.5
+        var zero: Float = 0
+
+        var frame = firstFrame
+        file.framePosition = firstFrame
+
+        while frame < lastFrame {
+            let readLength = AVAudioFrameCount(min(Int64(readCapacity), lastFrame - frame))
+            do { try file.read(into: buffer, frameCount: readLength) } catch { break }
+            guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { break }
+
+            let sampleCount = Int(buffer.frameLength)
+            pending.reserveCapacity(pending.count + sampleCount)
+            for index in 0..<sampleCount {
+                var mono: Float = 0
+                for channel in 0..<channelCount { mono += channels[channel][index] }
+                pending.append(mono / Float(channelCount))
+            }
+            frame += Int64(sampleCount)
+
+            var offset = 0
+            while pending.count - offset >= fftSize {
+                pending.withUnsafeBufferPointer { source in
+                    windowed.withUnsafeMutableBufferPointer { destination in
+                        vDSP_vmul(source.baseAddress! + offset, 1, window, 1,
+                                  destination.baseAddress!, 1, vDSP_Length(fftSize))
+                    }
+                }
+
+                real.withUnsafeMutableBufferPointer { realPointer in
+                    imaginary.withUnsafeMutableBufferPointer { imaginaryPointer in
+                        var split = DSPSplitComplex(realp: realPointer.baseAddress!,
+                                                    imagp: imaginaryPointer.baseAddress!)
+                        windowed.withUnsafeBufferPointer { input in
+                            input.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfSize) {
+                                vDSP_ctoz($0, 2, &split, 1, vDSP_Length(halfSize))
+                            }
+                        }
+                        vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(FFT_FORWARD))
+                        vDSP_zvmags(&split, 1, &magnitudesSquared, 1, vDSP_Length(halfSize))
+                    }
+                }
+
+                // vDSP packs DC in real[0] and Nyquist in imag[0], and returns twice the
+                // unnormalized transform — hence the halving.
+                magnitudesSquared.withUnsafeBufferPointer { squared in
+                    magnitude.withUnsafeMutableBufferPointer { mag in
+                        vvsqrtf(mag.baseAddress! + 1, squared.baseAddress! + 1, &interiorCount)
+                        vDSP_vsmul(mag.baseAddress! + 1, 1, &halfScale,
+                                   mag.baseAddress! + 1, 1, vDSP_Length(halfSize - 1))
+                    }
+                }
+                magnitude[0] = abs(real[0]) * 0.5
+                magnitude[halfSize] = abs(imaginary[0]) * 0.5
+
+                // log1p compresses dynamics so a loud passage doesn't dominate the envelope.
+                magnitude.withUnsafeBufferPointer { mag in
+                    logMagnitude.withUnsafeMutableBufferPointer { logMag in
+                        vvlog1pf(logMag.baseAddress!, mag.baseAddress!, &binCount)
+                    }
+                }
+
+                if havePrevious {
+                    var rise: Float = 0
+                    // vDSP_vsub computes C = B - A, so previous goes first.
+                    vDSP_vsub(previousLogMagnitude, 1, logMagnitude, 1,
+                              &rectified, 1, vDSP_Length(halfSize + 1))
+                    vDSP_vthres(rectified, 1, &zero, &rectified, 1, vDSP_Length(halfSize + 1))
+                    vDSP_sve(rectified, 1, &rise, vDSP_Length(halfSize + 1))
+                    flux.append(Double(rise))
+                }
+                swap(&previousLogMagnitude, &logMagnitude)
+                havePrevious = true
+
+                offset += hop
+            }
+
+            if offset > 0 { pending.removeFirst(offset) }
+        }
+
+        guard !flux.isEmpty else { return nil }
+        let mean = flux.reduce(0, +) / Double(flux.count)
+        return flux.map { $0 - mean }
+    }
+
+    /// Social-dance music lives here; anything outside is an octave error, not a tempo.
+    static let detectableBPMRange: ClosedRange<Double> = 60...210
+
+    /// Picks the octave of `bpm` best fitting the style's window. Powers of two only — a 3:2
+    /// relative moves the beat rather than recounting it. Inside the window wins; else a reading
+    /// within 5 BPM of it (slower one, so a polka at 104 doesn't double to 208); else nearest,
+    /// ties to the faster (a lindy hop reading 89 is really 178).
+    static func octaveFitted(
+        _ bpm: Double,
+        to range: ClosedRange<Double>?,
+        score: ((Double) -> Double)? = nil
+    ) -> Double {
+        guard let range, !range.contains(bpm) else { return bpm }
+
+        func distance(from candidate: Double) -> Double {
+            if range.contains(candidate) { return 0 }
+            return candidate < range.lowerBound
+                ? range.lowerBound - candidate
+                : candidate - range.upperBound
+        }
+
+        let octaves = [1.0, 2.0, 0.5, 4.0, 0.25]
+            .map { bpm * $0 }
+            .filter { $0 >= detectableBPMRange.lowerBound && $0 <= detectableBPMRange.upperBound }
+        guard !octaves.isEmpty else { return bpm }
+
+        let inside = octaves.filter { range.contains($0) }
+        if !inside.isEmpty {
+            guard let score else { return inside.min() ?? bpm }
+            return inside.max { score($0) < score($1) } ?? bpm
+        }
+
+        if let slowestNearby = octaves.filter({ distance(from: $0) <= 5 }).min() {
+            return slowestNearby
+        }
+
+        return octaves.min {
+            let left = distance(from: $0), right = distance(from: $1)
+            return left == right ? $0 > $1 : left < right
+        } ?? bpm
+    }
+
+    private static func tempo(
+        fromOnsets onsets: [Double],
+        envelopeRate: Double,
+        expectedRange: ClosedRange<Double>?
+    ) -> Double? {
+        let minBPM = Self.detectableBPMRange.lowerBound
+        let maxBPM = Self.detectableBPMRange.upperBound
+        let priorBPM = 120.0, priorSigma = 0.9
+
+        let lowestLag = max(2, Int((envelopeRate * 60.0 / maxBPM).rounded()))
+        let highestLag = min(onsets.count - 2, Int((envelopeRate * 60.0 / minBPM).rounded()))
+        guard highestLag > lowestLag else { return nil }
+
+        // Needed out to 4x the longest candidate for the comb score.
+        let maxNeededLag = min(onsets.count - 1, highestLag * 4)
+        var autocorrelation = [Double](repeating: 0, count: maxNeededLag + 1)
+        onsets.withUnsafeBufferPointer { samples in
+            guard let base = samples.baseAddress else { return }
+            for lag in 0...maxNeededLag {
+                var sum = 0.0
+                vDSP_dotprD(base, 1, base + lag, 1, &sum, vDSP_Length(onsets.count - lag))
+                autocorrelation[lag] = sum / Double(onsets.count - lag)
+            }
+        }
+        guard autocorrelation[0] > 0 else { return nil }
+        let normalizer = autocorrelation[0]
+        for lag in autocorrelation.indices { autocorrelation[lag] /= normalizer }
+
+        var scores = [Double](repeating: 0, count: highestLag - lowestLag + 1)
+        for (offset, lag) in (lowestLag...highestLag).enumerated() {
+            let bpm = 60.0 * envelopeRate / Double(lag)
+            let prior = exp(-0.5 * pow(log2(bpm / priorBPM) / priorSigma, 2))
+
+            var combSum = 0.0
+            var combCount = 0
+            for multiple in 1...4 {
+                let harmonic = lag * multiple
+                if harmonic < autocorrelation.count {
+                    combSum += autocorrelation[harmonic]
+                    combCount += 1
+                }
+            }
+            let comb = combSum / Double(max(combCount, 1))
+
+            scores[offset] = (autocorrelation[lag] * 0.5 + comb * 0.5) * prior
+        }
+
+        guard let bestOffset = scores.indices.max(by: { scores[$0] < scores[$1] }) else { return nil }
+        var lag = Double(lowestLag + bestOffset)
+
+        // Parabolic interpolation across the peak, for sub-lag precision.
+        if bestOffset > 0, bestOffset < scores.count - 1 {
+            let before = scores[bestOffset - 1]
+            let peak = scores[bestOffset]
+            let after = scores[bestOffset + 1]
+            let denominator = before - 2 * peak + after
+            if denominator != 0 {
+                lag += 0.5 * (before - after) / denominator
+            }
+        }
+
+        guard lag > 0 else { return nil }
+
+        func interpolated(_ lag: Double) -> Double {
+            guard lag >= 1, lag < Double(autocorrelation.count - 1) else { return 0 }
+            let index = Int(lag)
+            let fraction = lag - Double(index)
+            return autocorrelation[index] * (1 - fraction) + autocorrelation[index + 1] * fraction
+        }
+
+        /// Comb strength for a tempo: the autocorrelation summed over the lag's harmonics.
+        func combScore(forBPM bpm: Double) -> Double {
+            let candidateLag = 60.0 * envelopeRate / bpm
+            var total = 0.0
+            var weight = 0.0
+            for multiple in 1...4 {
+                let harmonic = candidateLag * Double(multiple)
+                guard harmonic < Double(autocorrelation.count - 1) else { break }
+                let harmonicWeight = Double(multiple)
+                total += interpolated(harmonic) * harmonicWeight
+                weight += harmonicWeight
+            }
+            return weight > 0 ? total / weight : -.infinity
+        }
+
+        let chosenBPM = octaveFitted(
+            60.0 * envelopeRate / lag,
+            to: expectedRange,
+            score: combScore(forBPM:)
+        )
+
+        // One lag step is ~2.7 BPM at 120, so refine on a fine grid scored by the harmonic
+        // comb — an error in the fundamental is multiplied at 2x/3x/4x.
+        let coarseBPM = chosenBPM
+        var refinedBPM = coarseBPM
+        var bestRefinedScore = -Double.infinity
+
+        var candidate = max(minBPM, coarseBPM - 4.0)
+        let ceiling = min(maxBPM, coarseBPM + 4.0)
+        while candidate <= ceiling {
+            let normalized = combScore(forBPM: candidate)
+            if normalized > bestRefinedScore {
+                bestRefinedScore = normalized
+                refinedBPM = candidate
+            }
+            candidate += 0.02
+        }
+
+        return refinedBPM
+    }
+
+    /// Detection always reports a whole number: sub-BPM precision from an estimate reads as
+    /// more certainty than there is. A decimal typed by the DJ is kept — the BPM fields are
+    /// free text and `parseBPM` reads a Double — so "119.5" survives if that's deliberate.
+    static func formatBPM(_ bpm: Double) -> String {
+        String(Int(bpm.rounded()))
+    }
+
+    /// Fills in BPM for every local song. Run from the Tools menu or ⌘B, and automatically at
+    /// import when the Advanced Settings toggle is on.
+    func detectBPMForLibrary(overwritingExisting: Bool = true) {
+        // Local files only. A streamed track has no samples to measure, and Spotify closed its
+        // audio-features endpoint — the one source of a tempo figure — to new apps in late 2024.
+        let targets = tracks.filter {
+            $0.source == .local
+                && !$0.hasVariableTempo
+                && (overwritingExisting || $0.manualBPM.isEmpty)
+        }
+        guard !targets.isEmpty, !isDetectingBPM else { return }
+
+        // Its own counters as well as the shared import activity: the import overlay lives
+        // behind the Advanced Settings sheet, so a run started from there needs progress the
+        // sheet itself can draw.
+        isDetectingBPM = true
+        bpmDetectionCompleted = 0
+        bpmDetectionTotal = targets.count
+        beginImportActivity(message: "Detecting BPM…", totalCount: targets.count)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            // One song per core. Each detection is self-contained — it opens its own file and
+            // touches no shared state — so this is a straight wall-clock win on the whole set.
+            DispatchQueue.concurrentPerform(iterations: targets.count) { position in
+                let track = targets[position]
+                let detected = self.detectBPM(of: track)
+
+                DispatchQueue.main.async {
+                    self.advanceImportProgress()
+                    self.bpmDetectionCompleted += 1
+
+                    guard let detected, let index = self.trackIndex(for: track.id) else { return }
+                    self.tracks[index].manualBPM = Self.formatBPM(detected)
+                    self.saveTrack(self.tracks[index])
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.finishImportActivity()
+                self.isDetectingBPM = false
+                self.bpmDetectionCompleted = 0
+                self.bpmDetectionTotal = 0
+            }
+        }
+    }
+
+    // MARK: - Dynamics compression
+
+    /// Where rendered copies live. Kept outside the project so the original import is never
+    /// touched; the project package copies whatever the track points at when it saves.
+    private static var compressedAudioFolderURL: URL? {
+        guard let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return nil }
+
+        let folder = appSupport
+            .appendingPathComponent("DancePlayer", isDirectory: true)
+            .appendingPathComponent("Compressed", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    /// How much louder the track still needs to be after the peak-limited boost is spent.
+    /// Anything above ~1dB is worth compressing for; below that it isn't audible.
+    private func loudnessDeficitdB(loudness: Double, peak: Float) -> Double {
+        let needed = targetLoudnessLUFS - loudness
+        guard needed > 0 else { return 0 }
+        return max(0, needed - gainCorrection(forLoudness: loudness, peak: peak))
+    }
+
+    /// Renders a compressed copy of a song gain alone can't lift to target — peaks near full
+    /// scale cap the boost, so the crest factor has to come down first. Once, at import, local
+    /// files only, ALAC so the re-render is lossless.
+    private func renderCompressedCopy(of track: Track, loudness: Double, peak: Float) -> URL? {
+        let deficit = loudnessDeficitdB(loudness: loudness, peak: peak)
+        guard deficit > 1.0, peak > 0 else { return nil }
+
+        guard let sourceFile = try? AVAudioFile(forReading: track.url),
+              let folder = Self.compressedAudioFolderURL
+        else { return nil }
+
+        let format = sourceFile.processingFormat
+        let channelCount = Int(format.channelCount)
+        guard format.sampleRate > 0, channelCount > 0, sourceFile.length > 0 else { return nil }
+
+        // Gain first, then hold the peaks down — the order matters. Compressing before the
+        // makeup gain leaves the loudness where it started, and an envelope follower with a
+        // real attack time never sees a sample peak at all, so nothing useful happens.
+        let makeupdB = min(12.0, targetLoudnessLUFS - loudness)
+        let makeup = pow(10.0, makeupdB / 20.0)
+        let ceiling = 0.98
+
+        // Instant attack, so the ceiling can't be exceeded; 50ms release keeps the gain
+        // reduction from pumping between beats.
+        let release = exp(-1.0 / (0.050 * format.sampleRate))
+
+        let destinationURL = folder.appendingPathComponent(
+            "\(track.songHash.replacingOccurrences(of: ":", with: "_")).m4a"
+        )
+        try? FileManager.default.removeItem(at: destinationURL)
+
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatAppleLossless,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: channelCount,
+        ]
+        guard let outputFile = try? AVAudioFile(forWriting: destinationURL, settings: outputSettings)
+        else { return nil }
+
+        let chunk: AVAudioFrameCount = 65536
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk) else { return nil }
+
+        // One envelope across all channels, so the limiter never shifts the stereo image.
+        var envelope = 0.0
+        var maxReductiondB = 0.0
+
+        while sourceFile.framePosition < sourceFile.length {
+            do { try sourceFile.read(into: buffer, frameCount: chunk) } catch { break }
+            guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { break }
+
+            for frame in 0..<Int(buffer.frameLength) {
+                var loudest = 0.0
+                for channel in 0..<channelCount {
+                    loudest = max(loudest, abs(Double(channels[channel][frame]) * makeup))
+                }
+
+                envelope = max(loudest, envelope * release)
+                let reduction = envelope > ceiling ? ceiling / envelope : 1.0
+                if reduction < 1 {
+                    maxReductiondB = max(maxReductiondB, -20.0 * log10(reduction))
+                }
+
+                for channel in 0..<channelCount {
+                    channels[channel][frame] = Float(Double(channels[channel][frame]) * makeup * reduction)
+                }
+            }
+
+            do { try outputFile.write(from: buffer) } catch { return nil }
+        }
+
+        print(String(
+            format: "Limited '%@': %+.1f dB makeup, %.1f dB max reduction",
+            track.title, makeupdB, maxReductiondB
+        ))
+        return destinationURL
+    }
+
+    /// Re-derived from a stored measurement when the original peak wasn't kept. Peak only
+    /// caps a boost, so attenuation is exact; a boost returns nil and must be re-measured.
     private func gainCorrection(forLoudness loudness: Double) -> Double? {
         let needed = targetLoudnessLUFS - loudness
         guard needed <= 0 else { return nil }
         return max(needed, -24.0)
     }
 
-    /// Correction needed to bring `loudness` to target, limited so a boost can't clip `peak`.
+    /// Correction to bring `loudness` to target, capped by the headroom `peak` leaves. Headroom
+    /// may be negative: a source already over the ceiling is pulled down, not just left
+    /// unboosted, since time-stretching overshoots past full scale.
     private func gainCorrection(forLoudness loudness: Double, peak: Float) -> Double {
         let needed = targetLoudnessLUFS - loudness
-        let peakHeadroomdB = peak > 0 ? 20.0 * log10(Double(0.98 / peak)) : 0.0
-        let maxBoostdB = min(12.0, max(0.0, peakHeadroomdB))
-        return min(max(needed, -24.0), maxBoostdB)
+        let peakHeadroomdB = peak > 0 ? 20.0 * log10(Double(0.98 / peak)) : 12.0
+        return min(max(needed, -24.0), min(12.0, peakHeadroomdB))
     }
 
     private func calculateLoudness(forTrackAt index: Int) {
@@ -2340,16 +3336,51 @@ class PlayerController: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            guard let measurement = self.measureLoudness(of: track) else {
+            guard var measurement = self.measureLoudness(of: track) else {
                 print("Could not measure loudness for '\(track.title)'")
                 return
             }
+
+            // Gain alone can't always reach target: a song with peaks near full scale runs out
+            // of headroom first. Compress it once, here on import, then measure the render —
+            // the gain path finishes the job from a crest factor that leaves room for it.
+            var playbackURL = track.url
+            if let compressedURL = self.renderCompressedCopy(
+                of: track,
+                loudness: measurement.loudness,
+                peak: measurement.peak
+            ) {
+                var compressedTrack = track
+                compressedTrack.url = compressedURL
+
+                if let remeasured = self.measureLoudness(of: compressedTrack) {
+                    let before = self.loudnessDeficitdB(loudness: measurement.loudness, peak: measurement.peak)
+                    let after = self.loudnessDeficitdB(loudness: remeasured.loudness, peak: remeasured.peak)
+                    print(String(
+                        format: "Compressed '%@': %.1f LUFS peak %.2f -> %.1f LUFS peak %.2f (short by %.1f dB, now %.1f)",
+                        track.title, measurement.loudness, measurement.peak,
+                        remeasured.loudness, remeasured.peak, before, after
+                    ))
+                    measurement = remeasured
+                    playbackURL = compressedURL
+                } else {
+                    try? FileManager.default.removeItem(at: compressedURL)
+                }
+            }
+
             let neededCorrection = self.gainCorrection(forLoudness: measurement.loudness, peak: measurement.peak)
+
+            // Same background pass — the file is already being decoded for loudness.
+            let detectedBPM = self.bpmDetectionOnImport ? self.detectBPM(of: track) : nil
 
             DispatchQueue.main.async {
                 // Verify structural index integrity hasn't changed mid-thread
                 guard self.tracks.indices.contains(index), self.tracks[index].id == track.id else { return }
 
+                self.tracks[index].url = playbackURL
+                if self.bpmDetectionOnImport, self.tracks[index].manualBPM.isEmpty, let bpm = detectedBPM {
+                    self.tracks[index].manualBPM = Self.formatBPM(bpm)
+                }
                 self.tracks[index].measuredLoudness = measurement.loudness
                 self.tracks[index].gainCorrectiondB = neededCorrection
                 self.tracks[index].loudnessAnalysisVersion = Self.loudnessAnalysisVersion
@@ -2357,7 +3388,7 @@ class PlayerController: ObservableObject {
 
                 // If the user happens to already be playing this track, update engine mix immediately
                 if self.currentIndex == index, let item = self.avPlayer?.currentItem {
-                    self.applyGain(neededCorrection, to: item, url: track.url)
+                    self.applyGain(neededCorrection, to: item, url: playbackURL)
                 }
 
                 self.saveTrack(self.tracks[index])
@@ -2613,6 +3644,8 @@ class PlayerController: ObservableObject {
             return tracks[idx].id
         }
 
+        recordUndoSnapshot("Move Song")
+
         let destination = toIndex > fromIndex ? toIndex + 1 : toIndex
         tracks.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: destination)
 
@@ -2626,6 +3659,7 @@ class PlayerController: ObservableObject {
     
     func removeTrack(at index: Int) {
         guard tracks.indices.contains(index) else { return }
+        recordUndoSnapshot("Remove Song")
         
         if currentIndex == index {
             avPlayer?.pause()
@@ -2908,18 +3942,9 @@ class PlayerController: ObservableObject {
         }
     }
     
-    /// Brings out-of-date gain tags up to the current analysis, automatically and without
-    /// asking. Songs already on the current version are left untouched.
-    ///
-    /// A song that carries a stored `measuredLoudness` has already been analysed — only the
-    /// *gain derived from it* went out of date, and re-deriving that is arithmetic, not a
-    /// decode. So a migration resolves in place for nearly everything, and only songs with
-    /// no stored measurement (or that now need a boost, where the original peak wasn't kept)
-    /// fall through to the background pass.
-    ///
-    /// This makes `loudnessAnalysisVersion` the switch that forces a library-wide re-level:
-    /// bump it alongside any change to `measureLoudness`, `gainCorrection`, or
-    /// `targetLoudnessLUFS`, or the old corrections will be kept and quietly be wrong.
+    /// Brings stale gain tags up to the current analysis. A stored `measuredLoudness` is still
+    /// valid — only the derived gain went stale, and re-deriving is arithmetic, so most of a
+    /// migration costs no decode. Bump `loudnessAnalysisVersion` to force a pass.
     func relevelLibraryGain() {
         // A pass works from a snapshot, so a project opened while one is running would be
         // missed. Re-run at the end instead of dropping the request.
@@ -2968,9 +3993,8 @@ class PlayerController: ObservableObject {
         isBatchProcessingLoudness = true
         loudnessBatchProgress = 0.0
 
-        // `isBatchProcessingLoudness` already raises the import overlay, so it needs a label
-        // of its own — otherwise the pass hides behind a stale "Importing media…" spinner
-        // left over from the project load that started it.
+        // This already raises the import overlay, so it needs its own label rather than the
+        // stale spinner left over from the project load that started it.
         beginImportActivity(message: "Levelling song volume…", totalCount: needsMeasuring.count)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -3018,9 +4042,8 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Catches up any stale gain tags on whatever is already loaded when the app comes up. A
-    /// cold launch opens to the welcome screen with an empty queue, so this usually no-ops
-    /// and the pass that matters runs when a project opens.
+    /// Usually no-ops — a cold launch has an empty queue — but covers a session that starts
+    /// with songs already loaded.
     func relevelLibraryGainOnLaunch() {
         guard hasRunLaunchRelevel == false else { return }
         hasRunLaunchRelevel = true
@@ -3125,6 +4148,23 @@ class PlayerController: ObservableObject {
         }
 
         processAudioURL(url, presetDanceStyles: edit.danceStyles, runReplayGainOnAdd: true)
+
+        guard let known = edit.knownBPM else { return }
+        // Applied once the import lands, since the track doesn't exist yet at this point.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let index = self.tracks.firstIndex(where: {
+                    self.popularEdit(for: $0)?.id == edit.id
+                }) else { continue }
+                if self.tracks[index].manualBPM.isEmpty {
+                    self.tracks[index].manualBPM = String(known)
+                    self.saveTrack(self.tracks[index])
+                }
+                return
+            }
+        }
     }
 
     private func popularEditResourceURL(for edit: PopularEdit) -> URL? {
@@ -3562,6 +4602,38 @@ class PlayerController: ObservableObject {
     /// rather than the View menu.
     private lazy var displayWindowObserver: DisplayWindowObserver = {
         DisplayWindowObserver { [weak self] in self?.isDisplayWindowOpen = false }
+    }()
+
+    /// A window rather than a sheet, so the DJ can keep it open beside the queue while working
+    /// through a set — and so its prefetching survives closing Advanced Settings.
+    func openCoverArtWindow() {
+        if coverArtWindowController == nil {
+            let hostingController = NSHostingController(rootView: CoverArtPickerView(player: self))
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 140, y: 140, width: 620, height: 560),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Cover Art"
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            window.delegate = coverArtWindowObserver
+
+            coverArtWindowController = NSWindowController(window: window)
+        }
+        coverArtWindowController?.showWindow(nil)
+        isCoverArtWindowOpen = true
+    }
+
+    func closeCoverArtWindow() {
+        coverArtWindowController?.close()
+        isCoverArtWindowOpen = false
+    }
+
+    private lazy var coverArtWindowObserver: DisplayWindowObserver = {
+        DisplayWindowObserver { [weak self] in self?.isCoverArtWindowOpen = false }
     }()
 
     // MARK: - Library Persistence
@@ -4665,9 +5737,40 @@ struct ResizeCursorModifier: ViewModifier {
     }
 }
 
+/// Open hand over a draggable row, closed hand while it's being dragged — the usual macOS
+/// reorder affordance. Uses `set()` rather than `push()`/`pop()` so a drag that ends outside
+/// the row can't leave the cursor stack unbalanced.
+struct GrabCursorModifier: ViewModifier {
+    let isDragging: Bool
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                isHovering = hovering
+                refreshCursor()
+            }
+            .onChange(of: isDragging) { _, _ in refreshCursor() }
+    }
+
+    private func refreshCursor() {
+        if isDragging {
+            NSCursor.closedHand.set()
+        } else if isHovering {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
+}
+
 extension View {
     func pointingHandCursor() -> some View {
         modifier(PointingHandCursorModifier())
+    }
+
+    func grabCursor(isDragging: Bool) -> some View {
+        modifier(GrabCursorModifier(isDragging: isDragging))
     }
 
     func resizeLeftRightCursor() -> some View {

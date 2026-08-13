@@ -119,9 +119,25 @@ private let extendedTempoRanges: [String: ClosedRange<Double>] = [
     "Fast Waltz": 170...200,
     "Lindy Hop": 125...160,
     "Last Lindy Hop": 125...160,
-    "West Coast Swing": 90...120,
-    "Last West Coast Swing": 90...120,
+    "West Coast Swing": 90...110,
+    "Last West Coast Swing": 90...110,
     "Polka": 105...130,
+]
+
+/// The expected tempo window for a song's styles, widened across all of them. Used by BPM
+/// detection to choose between octaves — selection guidance, not a judgement, so the advisory
+/// ranges count here too.
+func guidelineTempoRange(forStyles styles: Set<String>) -> ClosedRange<Double>? {
+    let ranges = styles.compactMap { extendedTempoRanges[$0] ?? advisoryTempoRanges[$0] }
+    guard !ranges.isEmpty else { return nil }
+    return ranges.map(\.lowerBound).min()!...ranges.map(\.upperBound).max()!
+}
+
+/// Useful to know but deliberately *not* checked. A style only belongs in `extendedTempoRanges`
+/// if falling outside it should cost the set a tempo exception.
+let advisoryTempoRanges: [String: ClosedRange<Double>] = [
+    "Fusion": 60...120,
+    "Night Club Two Step": 70...90,
 ]
 
 // MARK: - Report model

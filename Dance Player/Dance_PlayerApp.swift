@@ -13,7 +13,20 @@ import Combine
 /// the open request can arrive before (or after) `ContentView` exists.
 final class ProjectFileOpenRequest: ObservableObject {
     static let shared = ProjectFileOpenRequest()
-    @Published var pendingURL: URL? = nil
+
+    /// Carries an id as well as the URL. `@Published` fires from `willSet`, so a subscriber that
+    /// re-reads the property sees the old value; the URL must come from the publisher. The id
+    /// lets the view skip a request it already handled.
+    struct Request: Equatable {
+        let id = UUID()
+        let url: URL
+    }
+
+    @Published var pending: Request? = nil
+
+    func post(_ url: URL) {
+        pending = Request(url: url)
+    }
 }
 
 final class DancePlayerAppDelegate: NSObject, NSApplicationDelegate {
@@ -25,13 +38,11 @@ final class DancePlayerAppDelegate: NSObject, NSApplicationDelegate {
         guard let url = urls.first(where: {
             $0.pathExtension.lowercased() == PlayerController.projectFileExtension
         }) else { return }
-        ProjectFileOpenRequest.shared.pendingURL = url
+        ProjectFileOpenRequest.shared.post(url)
     }
 
-    /// Autosaves are debounced and then written on a background queue, so quitting right
-    /// after an edit used to kill the write in flight and lose it. Hold termination until
-    /// the save has landed — a few seconds on a large project, and the alternative is
-    /// silently discarding the DJ's last change.
+    /// Autosaves are debounced then written on a background queue, so quitting right after an
+    /// edit used to kill the write. Hold termination until it lands.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let player, !isWaitingForFinalSave else { return .terminateNow }
 
@@ -75,6 +86,14 @@ struct Dance_PlayerApp: App {
                 Divider()
             }
 
+            CommandGroup(replacing: .undoRedo) {
+                Button(player.undoActionLabel.map { "Undo \($0)" } ?? "Undo") {
+                    player.undoLastChange()
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(player.undoActionLabel == nil)
+            }
+
             CommandGroup(replacing: .saveItem) {
                 Button("Save As…") { player.saveProjectAs() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
@@ -97,6 +116,28 @@ struct Dance_PlayerApp: App {
                 ))
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(!player.hasLoadedProject)
+
+                Toggle("Cover Art Picker", isOn: Binding(
+                    get: { player.isCoverArtWindowOpen },
+                    set: { shouldOpen in
+                        if shouldOpen {
+                            player.openCoverArtWindow()
+                        } else {
+                            player.closeCoverArtWindow()
+                        }
+                    }
+                ))
+                .disabled(!player.hasLoadedProject)
+
+                Divider()
+
+                Button("Configure Set Clock…") { player.isPresentingSetClockConfig = true }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .disabled(!player.hasLoadedProject)
+
+                Button("Detect BPM for All Songs") { player.detectBPMForLibrary() }
+                    .keyboardShortcut("b", modifiers: .command)
+                    .disabled(!player.hasLoadedProject || player.isImportingContent)
             }
 
             CommandMenu("Settings") {
@@ -105,7 +146,11 @@ struct Dance_PlayerApp: App {
 
                 Divider()
 
-                Button("Advanced Settings…") { player.isPresentingAdvancedSettings = true }
+                Button("Advanced Settings…") {
+                    // Set before presenting, so animations stop before the sheet builds.
+                    player.isAdvancedSettingsOpen = true
+                    player.isPresentingAdvancedSettings = true
+                }
                 Button("Set Spotify API Key…") { player.isPresentingSpotifyKeyEditor = true }
             }
         }

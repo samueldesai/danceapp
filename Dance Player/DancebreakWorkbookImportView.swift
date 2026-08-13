@@ -60,14 +60,12 @@ private let workbookStyleAliases: [String: String] = [
 /// can type the actual name in during review.
 private let genericStylePlaceholders: Set<String> = ["line dance", "choreography", "mixer"]
 
-/// Tags that say how a song is *used* rather than what it is. A cross-step waltz danced
-/// with a stranger is still a cross-step waltz, so these ride alongside the dance style
-/// instead of replacing it — otherwise the row counts for neither.
+/// Tags for how a song is used rather than what it is. A cross-step waltz danced with a
+/// stranger is still a cross-step waltz, so these ride alongside the style.
 let workbookRoleTagStyles: Set<String> = ["Jam", "Dance with a Stranger"]
 
-/// The word that identifies each role tag, matched anywhere in a Style tag rather than only
-/// as its own dropdown entry, since DJs write them inline ("Cross-Step with a Stranger",
-/// "Rotary (jam)") as often as they write them as a separate comma-separated tag.
+/// Matched anywhere in a Style tag, since DJs write these inline ("Cross-Step with a
+/// Stranger", "Rotary (jam)") as often as as their own comma-separated tag.
 private let workbookRoleTagKeywords: [(keyword: String, style: String)] = [
     ("stranger", "Dance with a Stranger"),
     ("jam", "Jam"),
@@ -81,13 +79,11 @@ private let workbookTagSeparators = ["/", "+", "&", ";", " - "]
 private let workbookTokenTrimSet = CharacterSet.whitespacesAndNewlines
     .union(CharacterSet(charactersIn: "()[]-–—"))
 
-/// Connective words that carry no style meaning on their own. Only ever stripped as a
-/// fallback, after the token has failed to resolve as written — "Barbie Line Dance" ends in
-/// one of these and must keep it.
+/// Stripped only as a fallback, after a token fails to resolve as written — "Barbie Line
+/// Dance" ends in one of these and must keep it.
 private let workbookFillerWords: Set<String> = ["dance", "with", "w", "a", "an", "the", "and"]
 
-/// Removes the first whole-word occurrence of `keyword`, reporting whether it was there.
-/// Whole-word so "Strangers" or "Jamaica" isn't read as a role tag.
+/// Whole-word, so "Strangers" or "Jamaica" isn't read as a role tag.
 private func removeRoleKeyword(_ keyword: String, from text: inout String) -> Bool {
     var searchStart = text.startIndex
     while let range = text.range(of: keyword, options: .caseInsensitive, range: searchStart..<text.endIndex) {
@@ -493,22 +489,16 @@ private let closingStylePromotions: [(base: String, last: String)] = [
 
 private let rotaryCloseStyles: Set<String> = ["Rotary Waltz", "Last Rotary Waltz"]
 
-/// Where the closing block starts. The guidelines close on four dances ending in a rotary
-/// waltz, so normally that's the last four songs — but a set may put one solo-jazz dance
-/// after the final rotary, and counting only four would then leave the rotary out of range.
-/// So: four when the set ends on the rotary, five when something follows it.
+/// The guidelines close on four dances ending in a rotary waltz — so the last four songs,
+/// or five when a solo-jazz dance follows the rotary and would push it out of range.
 private func closingBlockStart(in rows: [WorkbookImportRow]) -> Int {
     let endsOnRotary = !(rows.last?.resolvedStyles.isDisjoint(with: rotaryCloseStyles) ?? true)
     return max(0, rows.count - (endsOnRotary ? 4 : 5))
 }
 
-/// Retags the last occurrence of each closing dance with its "Last …" variant. Runs on rows
-/// already sorted into play order, so "last" means last in the set rather than last in the
-/// file, and only inside the closing block — a lone lindy hop mid-set isn't a closing dance
-/// just because nothing follows it.
-///
-/// The tag replaces the base style rather than joining it: every guideline category counts a
-/// "Last …" tag as its base style, so nothing stops counting toward the minimums.
+/// Retags the last occurrence of each closing dance with its "Last …" variant, in play order and
+/// only inside the closing block. Every guideline category counts a "Last …" tag as its base
+/// style, so nothing stops counting.
 func promoteClosingStyles(in rows: inout [WorkbookImportRow]) {
     let closingBlockStart = closingBlockStart(in: rows)
 
@@ -704,6 +694,20 @@ struct WorkbookImportReviewView: View {
             }
 
             Text("Fetches cover art for every Spotify-marked row up front — review each match below and confirm it before importing. You'll be asked to approve access in your browser the first time.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+
+            Divider().background(Color(hex: "#242429"))
+
+            // Offered here as well as in Advanced Settings — import is when the workbook's BPM
+            // column is in front of the DJ, so it's the natural place to decide.
+            Toggle("Detect BPM for local songs on import", isOn: $player.bpmDetectionOnImport)
+                .toggleStyle(.switch)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white)
+
+            Text("Only fills rows whose BPM is blank — a tempo typed in the workbook is never "
+                 + "overwritten. Measured from the audio, so it needs the local file.")
                 .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#52525b"))
         }

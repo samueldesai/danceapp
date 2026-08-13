@@ -15,6 +15,8 @@ struct ContentView: View {
     @ObservedObject var player: PlayerController
     @ObservedObject private var openRequest = ProjectFileOpenRequest.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// Last Finder open request acted on, so it isn't opened twice.
+    @State private var handledProjectRequestID: UUID? = nil
 
     var body: some View {
         ZStack {
@@ -55,6 +57,7 @@ struct ContentView: View {
                     if player.importProgressFraction != nil {
                         ProgressView(value: Double(player.importCompletedCount), total: Double(player.importTotalCount))
                             .controlSize(.large)
+                            .frame(width: 280)
                     } else {
                         ProgressView()
                             .controlSize(.large)
@@ -72,6 +75,7 @@ struct ContentView: View {
                         }
                     }
                 }
+                .frame(maxWidth: 340)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
                 .background(Color(hex: "#111114").opacity(0.96))
@@ -85,7 +89,10 @@ struct ContentView: View {
         }
         .background(Color(hex: "#0e0e10"))
         .preferredColorScheme(.dark)
-        .animation(.easeInOut(duration: 0.2), value: player.selectedTrackForEditing)
+        .animation(
+            player.animationsEnabled ? .easeInOut(duration: 0.2) : nil,
+            value: player.selectedTrackForEditing
+        )
         .animation(.easeInOut(duration: 0.15), value: player.isImportingContent)
         .navigationTitle(player.projectName)
         .onChange(of: scenePhase) { _, newPhase in
@@ -95,26 +102,42 @@ struct ContentView: View {
         }
         // A .dbdj double-clicked in Finder can arrive before this view exists, so check on
         // appear as well as on change.
+        // Deferred a tick: these mutate the player, and SwiftUI runs these hooks inside its
+        // update pass, where publishing is undefined behaviour.
         .onAppear {
-            consumePendingProjectFile()
-            player.relevelLibraryGainOnLaunch()
+            DispatchQueue.main.async {
+                consumePendingProjectFile(openRequest.pending)
+                player.relevelLibraryGainOnLaunch()
+            }
         }
-        .onReceive(openRequest.$pendingURL) { _ in consumePendingProjectFile() }
+        // Closing the window leaves the app running, so save and unload here rather than
+        // waiting for a quit that may never come.
+        .onDisappear {
+            DispatchQueue.main.async {
+                player.closeProjectAfterLastWindowClosed()
+            }
+        }
+        .onReceive(openRequest.$pending) { request in
+            DispatchQueue.main.async { consumePendingProjectFile(request) }
+        }
         .sheet(isPresented: $player.isPresentingNewProject) {
             NewProjectDialog(player: player) { player.isPresentingNewProject = false }
         }
         .sheet(isPresented: $player.isPresentingAdvancedSettings) {
             AdvancedSettingsView(player: player)
+                .onDisappear { player.isAdvancedSettingsOpen = false }
         }
         .sheet(isPresented: $player.isPresentingSpotifyKeyEditor) {
             SpotifyKeyEditor(player: player) { player.isPresentingSpotifyKeyEditor = false }
         }
     }
 
-    private func consumePendingProjectFile() {
-        guard let url = openRequest.pendingURL else { return }
-        openRequest.pendingURL = nil
-        player.openProjectFile(at: url)
+    /// Takes the URL from the request, not the published property, which still holds its old
+    /// value while subscribers run. Deduped by id so it can't open twice.
+    private func consumePendingProjectFile(_ request: ProjectFileOpenRequest.Request?) {
+        guard let request, request.id != handledProjectRequestID else { return }
+        handledProjectRequestID = request.id
+        player.openProjectFile(at: request.url)
     }
 }
 
@@ -437,31 +460,29 @@ struct AppLogoView: View {
 }
 
 // MARK: - PLAYLIST QUEUE
-/// Queue on the left, library on the right, with a draggable divider between them.
+/// Queue on the left, library on the right, draggable divider between them.
 ///
-/// Not an `HSplitView`: when both panes are flexible it ignores `idealWidth` and just runs
-/// the queue out to its `maxWidth`, which read as a 50/50 split on a wide window. Driving the
-/// divider directly is the only way to get a predictable opening width — and it means the
-/// position the DJ drags to is remembered instead of resetting every launch.
+/// Not an `HSplitView`: with both panes flexible it ignores `idealWidth` and runs the queue
+/// out to its `maxWidth`, reading as a 50/50 split. Driving the divider directly gives a
+/// predictable opening width, and lets the dragged position be remembered.
 struct QueueSplitView: View {
     @ObservedObject var player: PlayerController
 
     static let minQueueWidth: CGFloat = 280
+    static let dividerWidth: CGFloat = 14
+    private static let dragSpace = "queueSplit"
     static let maxQueueWidth: CGFloat = 700
     /// Width the library needs before the queue is allowed to take any more room.
     private static let minLibraryWidth: CGFloat = 380
 
     @AppStorage("DancePlayer.queueWidth") private var storedQueueWidth: Double = 400
-    /// Width when the drag began — `DragGesture` reports translation from that point, so the
-    /// running total has to come from a fixed origin rather than the live value.
-    @State private var dragStartWidth: CGFloat? = nil
 
     var body: some View {
         GeometryReader { geo in
             // A narrow window squeezes the queue rather than pushing the library off-screen.
             let ceiling = max(
                 Self.minQueueWidth,
-                min(Self.maxQueueWidth, geo.size.width - Self.minLibraryWidth)
+                min(Self.maxQueueWidth, geo.size.width - Self.minLibraryWidth - Self.dividerWidth)
             )
             let queueWidth = min(max(CGFloat(storedQueueWidth), Self.minQueueWidth), ceiling)
 
@@ -475,32 +496,37 @@ struct QueueSplitView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .coordinateSpace(name: Self.dragSpace)
         }
     }
 
+    /// The whole gap is the grab target; an overlay reaching outside its parent isn't reliably
+    /// hit-tested, so the hairline alone used to catch the cursor.
     private func divider(ceiling: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color(hex: "#242429"))
-            .frame(width: 1)
-            .overlay(
-                // Hairline to look at, wider strip to actually grab.
-                Color.clear
-                    .frame(width: 11)
-                    .contentShape(Rectangle())
-                    .resizeLeftRightCursor()
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { value in
-                                let origin = dragStartWidth ?? CGFloat(storedQueueWidth)
-                                if dragStartWidth == nil { dragStartWidth = origin }
-                                let proposed = origin + value.translation.width
-                                storedQueueWidth = Double(
-                                    min(max(proposed, Self.minQueueWidth), ceiling)
-                                )
-                            }
-                            .onEnded { _ in dragStartWidth = nil }
+        ZStack {
+            Color.clear
+            Rectangle()
+                .fill(Color(hex: "#242429"))
+                .frame(width: 1)
+        }
+        .frame(width: Self.dividerWidth)
+        .contentShape(Rectangle())
+        .resizeLeftRightCursor()
+        .gesture(
+            // Absolute cursor x, not translation: the divider moves as it's dragged, so a
+            // translation measured in its own space fed back and trailed the cursor.
+            DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
+                .onChanged { value in
+                    player.isDraggingDivider = true
+                    let proposed = value.location.x - Self.dividerWidth / 2
+                    storedQueueWidth = Double(
+                        min(max(proposed, Self.minQueueWidth), ceiling)
                     )
-            )
+                }
+                .onEnded { _ in
+                    player.isDraggingDivider = false
+                }
+        )
     }
 }
 
@@ -576,19 +602,19 @@ struct PlaylistView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
+                        ForEach(player.tracks) { track in
                             PlaylistRow(
                                 displayIndex: player.queueNumber(for: track.id),
                                 track: track,
-                                isPlaying: player.currentIndex == index,
-                                isImporting: player.isImportingContent,
+                                isPlaying: player.currentTrack?.id == track.id,
+                                isImporting: !player.animationsEnabled,
                                 isBeingDragged: draggedTrack?.id == track.id,
                                 isDropTarget: dropTargetTrackID == track.id,
-                                onDelete: { player.removeTrack(at: index) },
-                                onToggleSkip: { player.toggleSkipTrack(at: index) }
+                                onDelete: { player.removeTrack(id: track.id) },
+                                onToggleSkip: { player.toggleSkipTrack(id: track.id) }
                             )
                                 .onTapGesture(count: 2) {
-                                    player.play(index: index)
+                                    player.play(id: track.id)
                                 }
                                 .onDrag {
                                     self.draggedTrack = track
@@ -952,6 +978,354 @@ struct SpotifySearchResultRow: View {
     }
 }
 
+
+
+// MARK: - Set Clock
+
+/// Sits in the top bar as text, not a window. Unconfigured it offers the configure button in
+/// its own place; once set it shows the projected finish and how far off target that is.
+struct SetClockBar: View {
+    @ObservedObject var player: PlayerController
+    @Binding var isPresentingConfigure: Bool
+
+    var body: some View {
+        Group {
+            if player.isSetClockConfigured {
+                Button(action: { isPresentingConfigure = true }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock")
+                        Text(readout)
+                        if let delta = player.setClockDeltaSeconds {
+                            Text(deltaLabel(delta))
+                                .foregroundColor(deltaColor(delta))
+                        }
+                    }
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+                .help("Projected finish — click to reconfigure")
+            } else {
+                Button(action: { isPresentingConfigure = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                        Text("Configure Set Clock")
+                    }
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+            }
+        }
+        .popover(isPresented: $isPresentingConfigure, arrowEdge: .bottom) {
+            SetClockConfigureView(player: player) { isPresentingConfigure = false }
+        }
+    }
+
+    private var readout: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return "Ends \(formatter.string(from: player.setClockProjectedEnd))"
+    }
+
+    private func deltaLabel(_ delta: Double) -> String {
+        let minutes = Int((abs(delta) / 60).rounded())
+        if minutes == 0 { return "on time" }
+        return delta > 0 ? "+\(minutes)m over" : "\(minutes)m spare"
+    }
+
+    /// Red only when the set is projected to run past its end time. On time and running short
+    /// are both fine, so both are green — keyed off the same rounding the label uses, so
+    /// "+1m over" can't read as green.
+    private func deltaColor(_ delta: Double) -> Color {
+        let minutes = Int((abs(delta) / 60).rounded())
+        let isOver = delta > 0 && minutes > 0
+        return isOver ? Color(hex: "#dc2626") : Color(hex: "#3f8f4f")
+    }
+}
+
+struct SetClockConfigureView: View {
+    @ObservedObject var player: PlayerController
+    var onDismiss: () -> Void
+
+    @State private var endTime = Date()
+    @State private var pauseText = "10"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Set Clock")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.white)
+
+            DatePicker(
+                "Set ends at",
+                selection: $endTime,
+                displayedComponents: [.hourAndMinute]
+            )
+            .datePickerStyle(.stepperField)
+
+            HStack(spacing: 8) {
+                Text("Pause between songs")
+                    .font(.system(size: 12))
+                Spacer()
+                TextField("10", text: $pauseText)
+                    .frame(width: 48)
+                    .multilineTextAlignment(.trailing)
+                Text("sec")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#71717a"))
+            }
+
+            Divider().background(Color(hex: "#242429"))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("ALSO BUDGETED AUTOMATICALLY")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Color(hex: "#52525b"))
+                    .tracking(0.6)
+                Text("+4 min for every jam")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                Text("+1:30 for every mixer")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+            }
+
+            HStack {
+                if player.isSetClockConfigured {
+                    Button("Turn Off") {
+                        player.setClockEndTime = nil
+                        onDismiss()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Spacer()
+                Button("Start Clock") {
+                    player.setClockPauseSeconds = max(0, Double(pauseText) ?? 10)
+                    // Taken as picked — the quarter hour is only the starting suggestion.
+                    player.setClockEndTime = endTime
+                    onDismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+        .onAppear {
+            let suggested = player.setClockEndTime ?? Date().addingTimeInterval(2 * 60 * 60)
+            endTime = Self.roundedToQuarterHour(suggested)
+            pauseText = String(Int(player.setClockPauseSeconds))
+        }
+    }
+
+    /// The suggested end time only. A dance usually ends on the quarter hour, so that's what
+    /// the picker opens on — but whatever the DJ sets from there is kept as-is. Rounding the
+    /// absolute interval is safe because every real UTC offset is a multiple of 15 minutes.
+    static func roundedToQuarterHour(_ date: Date) -> Date {
+        let quarter = 15.0 * 60.0
+        let snapped = (date.timeIntervalSinceReferenceDate / quarter).rounded() * quarter
+        return Date(timeIntervalSinceReferenceDate: snapped)
+    }
+}
+
+// MARK: - Cover Art Picker Window
+
+/// Walks the set one song at a time, offering iTunes covers to choose from. Candidates for the
+/// next song are fetched while the DJ looks at the current one, so advancing is instant.
+struct CoverArtPickerView: View {
+    @ObservedObject var player: PlayerController
+
+    @State private var index = 0
+    /// Fetched candidates per track id. Doubles as the prefetch cache.
+    @State private var cache: [UUID: [ITunesArtworkCandidate]] = [:]
+    @State private var loadingIDs: Set<UUID> = []
+
+    private var songs: [Track] { player.tracks }
+    private var track: Track? { songs.indices.contains(index) ? songs[index] : nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().background(Color(hex: "#242429"))
+
+            if let track {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        currentSong(track)
+                        choices(for: track)
+                    }
+                    .padding(16)
+                }
+                Divider().background(Color(hex: "#242429"))
+                controls
+            } else {
+                Text("No songs in this project.")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 520, minHeight: 460)
+        .background(Color(hex: "#111114"))
+        .preferredColorScheme(.dark)
+        .onAppear { prime() }
+        .onChange(of: index) { _, _ in prime() }
+    }
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cover Art")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                Text("Song \(min(index + 1, max(songs.count, 1))) of \(songs.count)")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#71717a"))
+            }
+            Spacer()
+            Button("Close") { player.closeCoverArtWindow() }
+                .buttonStyle(.bordered)
+        }
+        .padding(16)
+    }
+
+    private func currentSong(_ track: Track) -> some View {
+        HStack(spacing: 12) {
+            Group {
+                if let artwork = track.artwork {
+                    Image(nsImage: artwork).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 20))
+                        .foregroundColor(Color(hex: "#71717a"))
+                }
+            }
+            .frame(width: 72, height: 72)
+            .background(Color(hex: "#18181b"))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text("Current: \(resolutionLabel(for: track))")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(hex: "#52525b"))
+                    if track.hasCustomArtwork {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "#3f8f4f"))
+                            .help("Saved into the project")
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func choices(for track: Track) -> some View {
+        if let found = cache[track.id] {
+            if found.isEmpty {
+                Text("No matches on iTunes for this song.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#52525b"))
+                    .frame(height: 120, alignment: .topLeading)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
+                    ForEach(found) { choice in
+                        Button {
+                            player.applyChosenArtwork(choice.image, toTrackID: track.id)
+                            advance()
+                        } label: {
+                            VStack(spacing: 5) {
+                                Image(nsImage: choice.image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 120, height: 120)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                Text(choice.albumName.isEmpty ? choice.trackName : choice.albumName)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Color(hex: "#a3a3ac"))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                Text(choice.resolutionLabel)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(Color(hex: "#52525b"))
+                            }
+                            .frame(width: 120)
+                        }
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                        .help("Use this cover for \(track.title)")
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Searching iTunes…")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#71717a"))
+            }
+            .frame(height: 120, alignment: .topLeading)
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            Button("Back") { index = max(0, index - 1) }
+                .buttonStyle(.bordered)
+                .disabled(index == 0)
+
+            Button("Skip This Song") { advance() }
+                .buttonStyle(.bordered)
+
+            Spacer()
+
+            Text(index + 1 >= songs.count ? "Last song" : "")
+                .font(.system(size: 10))
+                .foregroundColor(Color(hex: "#52525b"))
+        }
+        .padding(16)
+    }
+
+    private func resolutionLabel(for track: Track) -> String {
+        guard let size = track.artwork?.pixelDimensions else { return "no art" }
+        return "\(size.width)×\(size.height)"
+    }
+
+    private func advance() {
+        if index + 1 < songs.count {
+            index += 1
+        } else {
+            player.closeCoverArtWindow()
+        }
+    }
+
+    /// Loads the current song and warms the next one, so the next step is already populated.
+    private func prime() {
+        guard songs.indices.contains(index) else { return }
+        load(songs[index])
+        if songs.indices.contains(index + 1) { load(songs[index + 1]) }
+    }
+
+    private func load(_ track: Track) {
+        guard cache[track.id] == nil, !loadingIDs.contains(track.id) else { return }
+        loadingIDs.insert(track.id)
+
+        Task {
+            let found = await ITunesArtworkLookup.candidates(title: track.title, artist: track.artist)
+            await MainActor.run {
+                cache[track.id] = found
+                loadingIDs.remove(track.id)
+            }
+        }
+    }
+}
+
 struct SpotifySetupHelpPopover: View {
     private let redirectURI = "http://127.0.0.1:43879/callback"
 
@@ -1055,7 +1429,7 @@ struct PlaylistRow: View {
             Button(track.isSkipped ? "Unskip Track" : "Skip Track") { onToggleSkip() }
             Button("Delete Track", role: .destructive) { onDelete() }
         }
-        .pointingHandCursor()
+        .grabCursor(isDragging: isBeingDragged)
     }
 }
 
@@ -1107,6 +1481,8 @@ struct LibraryTableView: View {
     @State private var dropTargetTrackID: UUID? = nil
     @State private var lastDropHapticTrackID: UUID? = nil
     @State private var isShowingAdvancedSettings = false
+    /// Measured content width, so a drag preview matches the row it came from.
+    @State private var rowWidth: CGFloat = 380
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1114,6 +1490,8 @@ struct LibraryTableView: View {
                 TransportControls(player: player)
 
                 Spacer()
+
+                SetClockBar(player: player, isPresentingConfigure: $player.isPresentingSetClockConfig)
 
                 Button(action: { player.openDisplayWindow() }) {
                     HStack(spacing: 6) {
@@ -1123,7 +1501,10 @@ struct LibraryTableView: View {
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
 
-                Button(action: { isShowingAdvancedSettings = true }) {
+                Button(action: {
+                    player.isAdvancedSettingsOpen = true
+                    isShowingAdvancedSettings = true
+                }) {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
@@ -1135,6 +1516,14 @@ struct LibraryTableView: View {
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 0) {
                 Rectangle().fill(Color(hex: "#1c1c22")).frame(height: 1)
+                    .background(
+                        // The rows span this same width, so it's what a drag preview should be.
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { rowWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, width in rowWidth = width }
+                        }
+                    )
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -1145,20 +1534,36 @@ struct LibraryTableView: View {
                                 .padding(.top, 40)
                                 .padding(.leading, 40)
                         } else {
-                            ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(
-                                    player: player,
-                                    track: track,
-                                    index: index,
-                                    isPlaying: player.currentIndex == index,
-                                    isBeingDragged: draggedTrack?.id == track.id,
-                                    isDropTarget: dropTargetTrackID == track.id
-                                )
+                            ForEach(player.tracks) { track in
+                                // Wrapped because `TrackRow` is a `GridRow` outside its Grid:
+                                // a background on it attaches per cell, not to the whole block.
+                                VStack(spacing: 0) {
+                                    TrackRow(
+                                        player: player,
+                                        track: track,
+                                        isPlaying: player.currentTrack?.id == track.id,
+                                        isBeingDragged: draggedTrack?.id == track.id,
+                                        isDropTarget: dropTargetTrackID == track.id
+                                    )
+                                }
                                     .onDrag {
                                         self.draggedTrack = track
                                         self.dropTargetTrackID = nil
                                         self.lastDropHapticTrackID = nil
                                         return NSItemProvider(object: track.id.uuidString as NSString)
+                                    } preview: {
+                                        // The row itself, so the preview can't drift from it.
+                                        // A GridRow outside its Grid stacks its cells, which is
+                                        // exactly how the row renders in this list.
+                                        VStack(spacing: 0) {
+                                            TrackRow(
+                                                player: player,
+                                                track: track,
+                                                isPlaying: player.currentTrack?.id == track.id
+                                            )
+                                        }
+                                        .frame(width: rowWidth)
+                                        .background(Color(hex: "#1c2f52"))
                                     }
                                     .onDrop(of: [.text], delegate: PlaylistDropDelegate(
                                         targetTrack: track,
@@ -1190,6 +1595,7 @@ struct LibraryTableView: View {
         .background(Color(hex: "#111114"))
         .sheet(isPresented: $isShowingAdvancedSettings) {
             AdvancedSettingsView(player: player)
+                .onDisappear { player.isAdvancedSettingsOpen = false }
         }
     }
 }
@@ -1197,7 +1603,6 @@ struct LibraryTableView: View {
 struct TrackRow: View {
     @ObservedObject var player: PlayerController
     let track: Track
-    let index: Int
     let isPlaying: Bool
     var isBeingDragged: Bool = false
     var isDropTarget: Bool = false
@@ -1293,19 +1698,25 @@ struct TrackRow: View {
             .pointingHandCursor()
             .frame(maxWidth: .infinity)
             .popover(isPresented: $isShowingPicker, arrowEdge: .trailing) {
+                // Resolved by id on every access — a row's position changes under it whenever
+                // the queue is reordered.
                 DanceStyleMultiSelectorPopover(
                     danceStyles: Binding(
-                        get: { player.tracks.indices.contains(index) ? player.tracks[index].danceStyles : [] },
+                        get: {
+                            player.trackIndex(for: track.id).map { player.tracks[$0].danceStyles } ?? []
+                        },
                         set: { newValue in
-                            if player.tracks.indices.contains(index) {
+                            if let index = player.trackIndex(for: track.id) {
                                 player.tracks[index].danceStyles = newValue
                             }
                         }
                     ),
                     customStyle: Binding(
-                        get: { player.tracks.indices.contains(index) ? player.tracks[index].customStyle : "" },
+                        get: {
+                            player.trackIndex(for: track.id).map { player.tracks[$0].customStyle } ?? ""
+                        },
                         set: { newValue in
-                            if player.tracks.indices.contains(index) {
+                            if let index = player.trackIndex(for: track.id) {
                                 player.tracks[index].customStyle = newValue
                             }
                         }
@@ -1347,7 +1758,7 @@ struct TrackRow: View {
         .animation(.easeOut(duration: 0.12), value: isDropTarget)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onTapGesture(count: 2) {
-            player.play(index: index)
+            player.play(id: track.id)
         }
         .pointingHandCursor()
     }
@@ -1728,6 +2139,9 @@ struct MetadataEditorPanel: View {
         let endSec = Double(endSecString) ?? 0.0
         let calculatedEnd = (endMin * 60.0) + endSec
 
+        let previousTempo = player.tracks[matchIdx].tempoPercentage
+        player.recordUndoSnapshot("Edit Song Details")
+
         var updatedTrack = player.tracks[matchIdx]
         updatedTrack.title = editableTitle
         updatedTrack.artist = editableArtist
@@ -1747,6 +2161,12 @@ struct MetadataEditorPanel: View {
         
         // Auto-commit properties directly to the permanent library JSON cache
         player.saveTrack(updatedTrack)
+
+        // Time-stretching overshoots peaks, so the gain has to be re-derived against the
+        // stretched audio or a boost sized for the original will clip.
+        if updatedTrack.tempoPercentage != previousTempo {
+            player.relevelGainForTempoChange(trackID: updatedTrack.id)
+        }
     }
 }
 
@@ -1943,7 +2363,7 @@ struct PlaybackStatusBar: View {
                             text: "LAST PLAYED: \(last.title) — \(last.artist) - \(last.formattedStylesDisplay)",
                             font: .system(size: 15, weight: .bold),
                             color: Color(hex: "#5b34f6"),
-                            isEnabled: !player.isImportingContent
+                            isEnabled: player.animationsEnabled
                         )
                     }
                     HStack(spacing: 6) {
@@ -1952,7 +2372,7 @@ struct PlaybackStatusBar: View {
                                 text: (player.currentTrack?.nextSongLeadIn ?? "The next song is a") + " " + (player.currentTrack?.formattedStylesDisplay ?? "-"),
                                 font: .system(size: 30, weight: .bold),
                                 color: Color(hex: "#eab308"),
-                                isEnabled: !player.isImportingContent
+                                isEnabled: player.animationsEnabled
                             )
                         }
                         statusDisplayView
@@ -1964,7 +2384,8 @@ struct PlaybackStatusBar: View {
                         HStack(spacing: 8) {
                             Text("Next song in \(Int(player.autoplayCountdownRemaining.rounded(.up)))s")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Color(hex: "#eab308"))
+                                .foregroundColor(.white)
+                                .monospacedDigit()
 
                             ProgressView(value: player.autoplayCountdownRemaining, total: max(1, player.autoplayDelaySeconds))
                                 .progressViewStyle(.linear)
@@ -1987,8 +2408,9 @@ struct PlaybackStatusBar: View {
                 }
                 Spacer()
                 Text("\(formatTime(player.currentTime)) / \(formatTime(player.duration))")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(hex: "#4e4e54"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .monospacedDigit()
             }
             
             Slider(value: Binding(
@@ -2009,14 +2431,11 @@ struct PlaybackStatusBar: View {
         }
     }
 
-    /// The size the line renders at when it fits — `minimumScaleFactor` takes it down from
-    /// here for a long title, rather than scrolling. A marquee makes the DJ wait to read the
-    /// end of a title mid-set. Just under the old fixed 30pt, so a short title still reads
-    /// big while a long one shrinks instead of running off.
+    /// Renders at this size when it fits; `minimumScaleFactor` takes it down for a long
+    /// title rather than scrolling, which would make the DJ wait to read the end.
     private static let nowPlayingMaxFontSize: CGFloat = 25
 
-    /// Floor for the shrink-to-fit. Expressed as a point size and converted to the scale
-    /// factor SwiftUI wants, so changing the maximum above doesn't silently move the floor.
+    /// A point size rather than a raw scale factor, so changing the max can't move it.
     private static let nowPlayingMinFontSize: CGFloat = 9
     private static var nowPlayingMinScale: CGFloat {
         nowPlayingMinFontSize / nowPlayingMaxFontSize
@@ -2131,10 +2550,17 @@ struct ScrollingMarquee<Content: View>: View {
                     .fixedSize()
                     .opacity(0)
                     .background(
+                        // Measured on change as well as on appear. Measuring only once meant a
+                        // view reused for a new song kept the previous song's width, so it
+                        // scrolled the wrong distance — or didn't scroll at all.
                         GeometryReader { geo in
                             Color.clear
                                 .onAppear {
                                     contentWidth = geo.size.width
+                                    startDate = Date()
+                                }
+                                .onChange(of: geo.size.width) { _, newWidth in
+                                    contentWidth = newWidth
                                     startDate = Date()
                                 }
                         }
@@ -2278,6 +2704,7 @@ struct AdvancedSettingsView: View {
     @ObservedObject var player: PlayerController
     @Environment(\.dismiss) private var dismiss
 
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -2302,6 +2729,10 @@ struct AdvancedSettingsView: View {
                     Divider().background(Color(hex: "#242429"))
                     autoplaySection
                     Divider().background(Color(hex: "#242429"))
+                    bpmSection
+                    Divider().background(Color(hex: "#242429"))
+                    coverArtSection
+                    Divider().background(Color(hex: "#242429"))
                     spotifySection
                 }
                 .padding(20)
@@ -2325,6 +2756,73 @@ struct AdvancedSettingsView: View {
             Text("Shows each track's BPM to amake tempo changes easier.")
                 .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#52525b"))
+        }
+    }
+
+    // MARK: - Tempo Detection
+
+    private var bpmSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("BPM DETECTION")
+
+            Toggle("Detect BPM on import", isOn: $player.bpmDetectionOnImport)
+                .toggleStyle(.switch)
+                .foregroundColor(.white)
+
+            Text("Estimates each song's tempo from its audio. It's a starting point, not a "
+                 + "measurement — check anything the guideline report flags.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Detect BPM for All Songs (⌘B)") { player.detectBPMForLibrary() }
+                .buttonStyle(.bordered)
+                .disabled(player.tracks.isEmpty || player.isImportingContent)
+
+            if player.isDetectingBPM {
+                VStack(alignment: .leading, spacing: 5) {
+                    ProgressView(
+                        value: Double(player.bpmDetectionCompleted),
+                        total: Double(max(player.bpmDetectionTotal, 1))
+                    )
+                    .progressViewStyle(.linear)
+                    .frame(width: 240)
+
+                    Text("Analysing \(player.bpmDetectionCompleted) of \(player.bpmDetectionTotal) songs…")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#a3a3ac"))
+                }
+            }
+        }
+    }
+
+    // MARK: - Cover Art
+
+    private var coverArtSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("COVER ART")
+
+            Text("Fetches album art from iTunes at up to \(ITunesArtworkLookup.preferredSize)px, "
+                 + "well beyond Spotify's 640px. Reviewed one song at a time so nothing is "
+                 + "replaced without you choosing it. Saved into the project, so it only needs "
+                 + "the network once.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#52525b"))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Open Cover Art Picker…") { player.openCoverArtWindow() }
+                .buttonStyle(.borderedProminent)
+                .disabled(player.tracks.isEmpty)
+
+            if player.tracks.isEmpty {
+                Text("No songs in this project.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#52525b"))
+            } else {
+                Text("Also available from the View menu.")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(hex: "#52525b"))
+            }
         }
     }
 

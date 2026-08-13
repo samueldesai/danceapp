@@ -69,14 +69,19 @@ struct PublicDisplayWindowView: View {
                             VStack(spacing: 0) {
                                 Spacer()
                                 
-                                VStack(spacing: 6) {
-                                    Text(player.currentTrack?.nextSongLeadIn ?? "The next song is a")
-                                        .font(.system(size: 24, weight: .semibold))
-                                        .foregroundColor(Color(hex: "#71717a"))
-                                    Text(player.currentTrack?.formattedStylesDisplay.isEmpty == false ? player.currentTrack!.formattedStylesDisplay.uppercased() : "—")
-                                        .font(.system(size: 52, weight: .black))
-                                        .foregroundColor(Color(hex: "#3478f6"))
-                                        .tracking(2)
+                                if player.currentTrack?.isJam == true {
+                                    jamAnnouncement
+                                } else {
+                                    VStack(spacing: 6) {
+                                        Text(player.currentTrack?.nextSongLeadIn ?? "The next song is a")
+                                            .font(.system(size: 24, weight: .semibold))
+                                            .foregroundColor(Color(hex: "#71717a"))
+                                        Text(player.currentTrack?.audienceStylesDisplay.isEmpty == false ? player.currentTrack!.audienceStylesDisplay.uppercased() : "—")
+                                            .font(.system(size: 52, weight: .black))
+                                            .foregroundColor(Color(hex: "#3478f6"))
+                                            .tracking(2)
+                                        strangerPrompt
+                                    }
                                 }
                                 
                                 Spacer()
@@ -200,28 +205,36 @@ struct PublicDisplayWindowView: View {
                                     )
                             }
                         }
-                        .frame(width: 600, height: 600)
+                        // Capped at 600 but allowed to shrink: pinned at a hard 600 it starved
+                        // the text column on anything but a very wide screen, which squeezed
+                        // the title down to its scale floor no matter what size it was set to.
+                        .frame(maxWidth: 600, maxHeight: 600)
+                        .aspectRatio(1, contentMode: .fit)
                         .cornerRadius(10)
                         .shadow(color: Color.black.opacity(0.6), radius: 30, x: 0, y: 15)
                         
                         VStack(alignment: .leading, spacing: 0) {
+                            // Far wider than the blocks below it — the now-playing title is the
+                            // thing the floor reads, so it gets the room before it shrinks.
                             Text(current.title)
-                                .font(.system(size: 40, weight: .bold))
+                                .font(.system(size: 58, weight: .bold))
                                 .foregroundColor(.white)
                                 .lineLimit(2)
-                                .minimumScaleFactor(0.5)
+                                .minimumScaleFactor(0.45)
                                 .truncationMode(.tail)
+                                .frame(maxWidth: 900, alignment: .leading)
                                 .padding(.bottom, 12)
                         
                             
                             Text(current.artist)
-                                .font(.system(size: 22, weight: .medium))
+                                .font(.system(size: 28, weight: .medium))
                                 .foregroundColor(Color(hex: "#d4d4d8"))
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.6)
                                 .padding(.bottom, 12)
                             
-                            if !current.formattedStylesDisplay.isEmpty {
-                                Text(current.formattedStylesDisplay)
+                            if !current.audienceStylesDisplay.isEmpty {
+                                Text(current.audienceStylesDisplay)
                                     .font(.system(size: 22, weight: .medium))
                                     .foregroundColor(Color(hex: "#d4d4d8"))
                                     .lineLimit(1)
@@ -258,7 +271,7 @@ struct PublicDisplayWindowView: View {
                                     
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(last.title)
-                                            .font(.system(size: 14, weight: .semibold))
+                                            .font(.system(size: 16, weight: .semibold))
                                             .foregroundColor(.white)
                                             .lineLimit(1)
                                         
@@ -268,11 +281,11 @@ struct PublicDisplayWindowView: View {
                                                 .foregroundColor(Color(hex: "#a1a1aa"))
                                                 .lineLimit(1)
                                             
-                                            if !last.formattedStylesDisplay.isEmpty && last.formattedStylesDisplay != "—" {
+                                            if !last.audienceStylesDisplay.isEmpty && last.audienceStylesDisplay != "—" {
                                                 Text("•")
                                                     .font(.system(size: 10))
                                                     .foregroundColor(Color(hex: "#52525b"))
-                                                Text(last.formattedStylesDisplay)
+                                                Text(last.audienceStylesDisplay)
                                                     .font(.system(size: 11, weight: .medium))
                                                     .foregroundColor(Color(hex: "#71717a"))
                                             }
@@ -280,7 +293,7 @@ struct PublicDisplayWindowView: View {
                                     }
                                     Spacer()
                                 }
-                                .frame(maxWidth: 380)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.bottom, 36)
                             }
                             
@@ -317,35 +330,33 @@ struct PublicDisplayWindowView: View {
                                             .frame(width: 52, height: 52)
                                             .cornerRadius(4)
                                             
+                                            // Style leads, and both lines scroll rather than crop.
                                             VStack(alignment: .leading, spacing: 4) {
-                                                Text(nextTrack.title)
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(.white)
-                                                    .lineLimit(1)
-                                                
-                                                HStack(spacing: 8) {
-                                                    Text(nextTrack.artist)
-                                                        .font(.system(size: 12))
-                                                        .foregroundColor(Color(hex: "#a1a1aa"))
-                                                        .lineLimit(1)
-                                                    if !nextTrack.formattedStylesDisplay.isEmpty && nextTrack.formattedStylesDisplay != "—" {
-                                                        Text("•")
-                                                            .font(.system(size: 10))
-                                                            .foregroundColor(Color(hex: "#52525b"))
-                                                        Text(nextTrack.formattedStylesDisplay)
-                                                            .font(.system(size: 11, weight: .medium))
-                                                            .foregroundColor(Color(hex: "#71717a"))
-                                                    }
+                                                let style = nextTrack.audienceStylesDisplay
+                                                if !style.isEmpty && style != "—" {
+                                                    MarqueeText(
+                                                        text: style,
+                                                        font: .system(size: 16, weight: .semibold),
+                                                        color: .white,
+                                                        isEnabled: !player.isImportingContent
+                                                    )
                                                 }
+
+                                                MarqueeText(
+                                                    text: "\(nextTrack.title) — \(nextTrack.artist)",
+                                                    font: .system(size: 11),
+                                                    color: Color(hex: "#a1a1aa"),
+                                                    isEnabled: !player.isImportingContent
+                                                )
                                             }
-                                            Spacer()
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                        .frame(maxWidth: 380)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
                             }
                         }
-                        .frame(width: 600, alignment: .leading)
+                        .frame(maxWidth: 900, alignment: .leading)
                     }
                     .padding(.horizontal, 40)
                     
@@ -402,6 +413,14 @@ struct PublicDisplayWindowView: View {
                 }
                 .transition(.opacity)
             }
+
+            // Last in the ZStack so it falls in front of the artwork and text.
+            if player.isBetweenSongs, player.currentTrack?.isJam == true {
+                ConfettiView()
+                    .edgesIgnoringSafeArea(.all)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.5), value: screenKey)
         .frame(minWidth: 1024, minHeight: 640)
@@ -412,5 +431,163 @@ struct PublicDisplayWindowView: View {
         let m = Int(t) / 60
         let s = Int(t) % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    @ViewBuilder
+    private var strangerPrompt: some View {
+        if player.currentTrack?.isWithStranger == true {
+            Text("Find someone you've never danced with and ask them to dance!")
+                .font(.system(size: 26, weight: .medium))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .padding(.top, 10)
+                .padding(.horizontal, 40)
+        }
+    }
+
+    private var jamAnnouncement: some View {
+        VStack(spacing: 10) {
+            Text("The next song is our Jam")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundColor(Color(hex: "#fde68a"))
+
+            Text(jamStyleLine)
+                .font(.system(size: 58, weight: .black))
+                .foregroundColor(Color(hex: "#f59e0b"))
+                .tracking(2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+
+            Text("Come to the middle if you have something to celebrate!")
+                .font(.system(size: 26, weight: .medium))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .padding(.top, 6)
+
+            strangerPrompt
+        }
+        .padding(.horizontal, 40)
+    }
+
+    /// The dance without the "Jam (…)" wrapper — the line above already says it's the jam.
+    private var jamStyleLine: String {
+        guard let track = player.currentTrack else { return "" }
+        let dance = track.audienceDanceOnlyDisplay
+        return (dance.isEmpty || dance == "—") ? "" : "(\(dance.uppercased()))"
+    }
+}
+
+/// Falling confetti drawn in a single `Canvas` rather than as many views — one draw pass per
+/// frame keeps it cheap enough to sit behind a live audience screen.
+struct ConfettiView: View {
+    private struct Piece {
+        let x: Double
+        let size: Double
+        let aspect: Double
+        let fallSeconds: Double
+        let phase: Double
+        let drift: Double
+        let swayAmplitude: Double
+        let swayFrequency: Double
+        let swayPhase: Double
+        let flutterAmplitude: Double
+        let flutterFrequency: Double
+        let flutterPhase: Double
+        let spin: Double
+        let spinPhase: Double
+        let opacity: Double
+        let color: Color
+    }
+
+    private let pieces: [Piece]
+
+    /// Independent value per piece per property. Deriving them from `index % n` gives only a
+    /// handful of distinct sizes and ties them to horizontal position, which reads as a pattern.
+    private static func noise(_ index: Int, _ salt: UInt64) -> Double {
+        var x = UInt64(truncatingIfNeeded: index) &* 0x9E37_79B9_7F4A_7C15
+        x = x &+ salt &* 0xBF58_476D_1CE4_E5B9
+        x ^= x >> 30
+        x = x &* 0xBF58_476D_1CE4_E5B9
+        x ^= x >> 27
+        x = x &* 0x94D0_49BB_1331_11EB
+        x ^= x >> 31
+        return Double(x >> 11) / Double(1 << 53)
+    }
+
+    init(count: Int = 110) {
+        let palette = ["#f59e0b", "#3478f6", "#ef4444", "#22c55e", "#e879f9", "#fde68a"]
+
+        pieces = (0..<count).map { index in
+            func value(_ salt: UInt64) -> Double { Self.noise(index, salt) }
+
+            let swayFrequency = 0.13 + value(7) * 0.42
+            return Piece(
+                x: value(1),
+                size: 6 + value(2) * 11,
+                aspect: 0.3 + value(3) * 0.55,
+                fallSeconds: 3.6 + value(4) * 4.8,
+                phase: value(5),
+                // Slow sideways travel over the fall, so a piece never retraces its own path.
+                drift: (value(6) - 0.5) * 34,
+                swayAmplitude: 4 + value(8) * 13,
+                swayFrequency: swayFrequency,
+                swayPhase: value(9) * 2 * .pi,
+                // A second, faster sine at an unrelated rate — the sum doesn't visibly repeat.
+                flutterAmplitude: 2 + value(10) * 4,
+                flutterFrequency: swayFrequency * (1.7 + value(11) * 0.9),
+                flutterPhase: value(12) * 2 * .pi,
+                spin: (value(13) < 0.5 ? -1 : 1) * (0.12 + value(14) * 0.55),
+                spinPhase: value(15) * 2 * .pi,
+                opacity: 0.7 + value(16) * 0.3,
+                color: Color(hex: palette[Int(value(17) * Double(palette.count)) % palette.count])
+            )
+        }
+    }
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let now = timeline.date.timeIntervalSinceReferenceDate
+
+            Canvas { context, size in
+                for piece in pieces {
+                    let progress = ((now / piece.fallSeconds) + piece.phase)
+                        .truncatingRemainder(dividingBy: 1.0)
+
+                    // Start above the top edge so pieces enter rather than pop into existence.
+                    let y = -piece.size + progress * (size.height + piece.size * 2)
+
+                    // Sway runs on wall-clock time rather than fall progress, so it isn't
+                    // locked to the fall cycle the way the first version was.
+                    let sway = sin(now * piece.swayFrequency * 2 * .pi + piece.swayPhase)
+                    let flutter = sin(now * piece.flutterFrequency * 2 * .pi + piece.flutterPhase)
+                    let x = piece.x * size.width
+                        + piece.drift * progress
+                        + sway * piece.swayAmplitude
+                        + flutter * piece.flutterAmplitude
+
+                    let height = piece.size * piece.aspect
+                    let rect = CGRect(
+                        x: -piece.size / 2,
+                        y: -height / 2,
+                        width: piece.size,
+                        height: height
+                    )
+
+                    context.drawLayer { layer in
+                        layer.translateBy(x: x, y: y)
+                        // Slow rotation with a gentle lean. Squashing by abs(cos(spin)) snaps
+                        // at every zero crossing, which is what jittered.
+                        layer.rotate(by: .radians(
+                            now * piece.spin + piece.spinPhase + flutter * 0.12
+                        ))
+                        layer.fill(Path(rect), with: .color(piece.color.opacity(piece.opacity)))
+                    }
+                }
+            }
+        }
     }
 }
