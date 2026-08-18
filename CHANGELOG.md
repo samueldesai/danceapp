@@ -1,5 +1,82 @@
 # Changelog
 
+## 1.3 — 18 August 2026
+
+### Timing editor
+
+- **A new waveform editor for local files**, replacing typed-in start/end timestamps. Drag to
+  trim, drag to fade, and see exactly where the beat lands. Open it with **Edit Length** in the
+  song's info panel — it opens right over the app rather than in a separate window.
+- Zoom and scroll along the waveform (**⌘+ / ⌘− / ⌘0**, or the scroll wheel) to find the exact
+  moment you want.
+- **Use Whole File** trims to the file's own natural start and end, respecting any silence
+  already there.
+- Every change applies immediately — there's no Save button, and closing the window keeps
+  whatever you left it at.
+- Undo and redo (**⌘Z** / **⌘Y**) work inside the editor for fine-grained changes, and the whole
+  editing session undoes as one step from the main app.
+- **Pressing play in the editor plays through the app's normal transport** — it shows on the
+  audience screen and now-playing display like any other song, and keeps playing if you close
+  and reopen the editor.
+- Haptic feedback as you drag trim handles and fades into place (Force Touch trackpads only).
+- Spotify tracks keep the simpler timestamp fields, since Spotify doesn't allow this kind of
+  editing — each now has a 5-second preview button.
+
+### Redo
+
+- **⌘Y now redoes** the last undone change, everywhere in the app — the main queue, the
+  metadata panel, and the timing editor.
+
+### Dance intros
+
+- **A "Play Intro" button** appears before the Bohemian National Polka and the Romany Polka on
+  the next-song screen, to play the spoken introduction before the song starts. It stops itself
+  right where the spoken part ends, rather than waiting through several seconds of silence.
+
+### Pivot partners
+
+- **After a jam finishes, the audience screen can call for pivot partners** — "Find A Pivot
+  Partner!!!" with confetti over a bright, celebratory background — before announcing the next
+  song. The booth shows "Pivots" while it's up, and autoplay waits for you to advance rather
+  than skipping through it. Turn this off in Advanced Settings if you'd rather a jam ended like
+  any other song.
+- Confetti now runs for the whole jam, not just its announcement.
+
+### Live playlist queue
+
+- **⌘-click to select multiple songs, shift-click to select a range** — same as Finder. With a
+  selection active, hide or delete every selected song in one action from the new selection bar,
+  or by right-clicking as before.
+- A bulk hide or delete counts as one action for undo, so ⌘Z reverses the whole batch in a
+  single press.
+
+### Workbook import
+
+- **Importing a local file or a Spotify match now keeps that file or track's own title and
+  artist**, rather than always using what the workbook sheet says — a workbook is typed by hand
+  and often abbreviates, and the file or match usually has the real thing. Missing fields still
+  fall back to the workbook.
+
+### Everything else
+
+- Arrow keys nudge a song's tempo up or down while the metadata panel is open — 1% per press,
+  half a percent with Shift.
+- A **Start Next Song** button sits next to Abort Auto-Play, for cutting the countdown short
+  without waiting it out or aborting it.
+- Buttons throughout the app show a pointing-hand cursor on hover.
+- Deleting a song and re-adding the same file now starts it fresh, without the old trims and
+  settings carried over.
+
+### Bug fixes
+
+Playback accuracy for trims and fades on certain files, cover art surviving background audio
+optimization, waveform and timestamp alignment, and a few rounding and re-cueing issues in the
+timing editor and workbook import.
+
+Added an Easter Egg- see if you can find it ;)
+
+---
+
 ## 1.2 — 13 August 2026
 
 ### Tempo detection

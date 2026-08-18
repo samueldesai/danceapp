@@ -566,6 +566,7 @@ struct GuidelineComplianceSheet: View {
                 Spacer()
                 Button("Done", action: onDismiss)
                     .buttonStyle(GuidelinePrimaryButtonStyle())
+                    .pointingHandCursor()
             }
             .padding(16)
         }

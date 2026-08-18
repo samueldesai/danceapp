@@ -12,6 +12,7 @@ struct PublicDisplayWindowView: View {
 
     private var screenKey: String {
         if player.showThankYouScreen { return "thankYou" }
+        if player.isShowingPivots { return "pivots" }
         if player.isBetweenSongs { return "betweenSongs" }
         if player.currentTrack != nil { return "nowPlaying" }
         return "idle"
@@ -34,6 +35,37 @@ struct PublicDisplayWindowView: View {
                 if player.showThankYouScreen {
                     Color(hex: "#0a0a0c")
                         .transition(.opacity)
+                } else if player.isShowingPivots {
+                    // Kept bright and saturated so the headline still reads from across the room.
+                    ZStack {
+                        LinearGradient(
+                            colors: [
+                                Color(hex: "#ec4899"),
+                                Color(hex: "#f97316"),
+                                Color(hex: "#fbbf24")
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+
+                        RadialGradient(
+                            colors: [Color(hex: "#fde68a").opacity(0.85), .clear],
+                            center: .init(x: 0.28, y: 0.24),
+                            startRadius: 0,
+                            endRadius: geo.size.width * 0.55
+                        )
+                        .blur(radius: 60)
+
+                        RadialGradient(
+                            colors: [Color(hex: "#f472b6").opacity(0.6), .clear],
+                            center: .init(x: 0.78, y: 0.76),
+                            startRadius: 0,
+                            endRadius: geo.size.width * 0.5
+                        )
+                        .blur(radius: 70)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .transition(.opacity)
                 } else if let currentTrack = player.currentTrack, let art = currentTrack.artwork {
                     Image(nsImage: art)
                         .resizable()
@@ -49,10 +81,13 @@ struct PublicDisplayWindowView: View {
             }
             .edgesIgnoringSafeArea(.all)
             
-            Color.black.opacity(0.75)
+            Color.black.opacity(player.isShowingPivots ? 0.14 : 0.75)
                 .edgesIgnoringSafeArea(.all)
 
-            if player.showThankYouScreen {
+            if player.isShowingPivots {
+                pivotCall
+                    .transition(.opacity)
+            } else if player.showThankYouScreen {
                 VStack(spacing: 14) {
                     Text("Thank You For Coming")
                         .font(.system(size: 54, weight: .black, design: .rounded))
@@ -205,9 +240,7 @@ struct PublicDisplayWindowView: View {
                                     )
                             }
                         }
-                        // Capped at 600 but allowed to shrink: pinned at a hard 600 it starved
-                        // the text column on anything but a very wide screen, which squeezed
-                        // the title down to its scale floor no matter what size it was set to.
+                        // Allowed to shrink below 600 — a hard cap starved the text column on narrower screens.
                         .frame(maxWidth: 600, maxHeight: 600)
                         .aspectRatio(1, contentMode: .fit)
                         .cornerRadius(10)
@@ -415,7 +448,7 @@ struct PublicDisplayWindowView: View {
             }
 
             // Last in the ZStack so it falls in front of the artwork and text.
-            if player.isBetweenSongs, player.currentTrack?.isJam == true {
+            if showsConfetti {
                 ConfettiView()
                     .edgesIgnoringSafeArea(.all)
                     .allowsHitTesting(false)
@@ -431,6 +464,25 @@ struct PublicDisplayWindowView: View {
         let m = Int(t) / 60
         let s = Int(t) % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    /// Through the jam announcement, through the jam, and through the pivot call that follows
+    /// it — the whole celebration rather than just its introduction.
+    private var showsConfetti: Bool {
+        if player.isShowingPivots { return true }
+        guard player.currentTrack?.isJam == true else { return false }
+        return player.isBetweenSongs || player.isPlaying
+    }
+
+    private var pivotCall: some View {
+        Text("Find A Pivot Partner!!!")
+            .font(.system(size: 160, weight: .black, design: .rounded))
+            .foregroundColor(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.4)
+            .shadow(color: .black.opacity(0.35), radius: 22, x: 0, y: 8)
+            .padding(.horizontal, 60)
     }
 
     @ViewBuilder

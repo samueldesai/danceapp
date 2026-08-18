@@ -92,6 +92,12 @@ struct Dance_PlayerApp: App {
                 }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(player.undoActionLabel == nil)
+
+                Button(player.redoActionLabel.map { "Redo \($0)" } ?? "Redo") {
+                    player.redoLastChange()
+                }
+                .keyboardShortcut("y", modifiers: .command)
+                .disabled(player.redoActionLabel == nil)
             }
 
             CommandGroup(replacing: .saveItem) {

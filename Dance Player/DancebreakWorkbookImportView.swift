@@ -1,9 +1,5 @@
-//
 //  DancebreakWorkbookImportView.swift
 //  Dance Player
-//
-//  Bulk import from a "Dancebreak DJ Workbook" spreadsheet (CSV or XLSX).
-//
 
 import SwiftUI
 import AppKit
@@ -30,9 +26,7 @@ struct WorkbookImportRow: Identifiable {
     var spotifySearchAttempted: Bool = false
     var isSpotifyApproved: Bool = false
 
-    // Set once this row is actually imported — lets Confirm be clicked again (after
-    // fixing a skipped row) without re-running already-succeeded rows, which would
-    // otherwise re-prompt the file picker for every local song all over again.
+    // Re-clicking Confirm skips already-imported rows so local files aren't re-prompted.
     var hasBeenImported: Bool = false
 
     // The track this row became, so the compliance check can measure real audio length
@@ -42,11 +36,7 @@ struct WorkbookImportRow: Identifiable {
 
 // MARK: - Style resolution
 
-/// The workbook's Style column is a fixed spreadsheet dropdown (see the reference list the
-/// DJ shared), so there's no typo variance to guard against — only these four dropdown
-/// labels differ from the app's canonical style name; everything else either matches a
-/// predefined style exactly already, or is an umbrella category that falls through to
-/// "Other" (handled by `genericStylePlaceholders` below).
+/// Only these dropdown labels differ from the app's canonical style names.
 private let workbookStyleAliases: [String: String] = [
     "rotary": "Rotary Waltz",
     "cross-step": "Cross-Step Waltz",
@@ -54,10 +44,7 @@ private let workbookStyleAliases: [String: String] = [
     "nc2s": "Night Club Two Step"
 ]
 
-/// Style tags that are umbrella categories rather than a specific dance/choreography name —
-/// the CSV dropdown only ever offers the category, so there's nothing more specific to
-/// carry over automatically. Left blank (instead of echoing the category label) so the DJ
-/// can type the actual name in during review.
+/// Left blank instead of echoing the category label, so the DJ types the actual name during review.
 private let genericStylePlaceholders: Set<String> = ["line dance", "choreography", "mixer"]
 
 /// Tags for how a song is used rather than what it is. A cross-step waltz danced with a
@@ -112,9 +99,7 @@ private func canonicalWorkbookStyle(for token: String) -> String? {
     return predefinedDanceStyles.first { $0.caseInsensitiveCompare(token) == .orderedSame }
 }
 
-/// Splits a raw workbook "Style" cell (comma-separated tags, chosen from a fixed dropdown
-/// so there's no typo variance to account for) into canonical predefined styles plus any
-/// leftover text that doesn't match anything, filed under "Other".
+/// Values come from a fixed dropdown, so there's no typo variance to guard against.
 func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, customText: String) {
     var normalized = rawStyle
     for separator in workbookTagSeparators {
@@ -185,9 +170,7 @@ func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, custo
     return (styles, customText)
 }
 
-/// Checks a row's title/artist/style text against the app's bundled "Popular Edits" so
-/// well-known tracks (Barbie Line Dance, Bohemian National Polka, Romany Polka, etc.)
-/// automatically use the shipped local audio file instead of asking the DJ to pick one.
+/// Matches well-known tracks so they use the shipped local audio instead of asking the DJ to pick one.
 func matchedPopularEdit(title: String, artist: String, rawStyle: String) -> PopularEdit? {
     let haystack = "\(title) \(artist) \(rawStyle)".lowercased()
 
@@ -401,9 +384,7 @@ private final class SheetRowsParser: NSObject, XMLParserDelegate {
     }
 }
 
-/// Best-effort XLSX reader: unzips the first worksheet + shared strings table and walks
-/// the raw XML. Handles plain single-sheet spreadsheets (text/number cells); doesn't
-/// handle multiple sheets, merged cells, or special date/number formatting.
+/// Best-effort reader: only handles plain single-sheet spreadsheets, not merged cells or special formatting.
 func parseXLSXRows(fileURL: URL) -> [[String]] {
     var sharedStrings: [String] = []
     if let sharedStringsData = unzipEntry(from: fileURL, entryName: "xl/sharedStrings.xml") {
@@ -477,9 +458,7 @@ private func parseWorkbookRows(from rawRows: [[String]]) -> [WorkbookImportRow] 
     return ordered
 }
 
-/// The four dances the guidelines have the set close on. The workbook's Style dropdown has
-/// no "Last …" option — a closing dance is just tagged with its style — so the final one of
-/// each is promoted on import.
+/// The dropdown has no "Last …" option, so the final occurrence of each closing dance is promoted on import.
 private let closingStylePromotions: [(base: String, last: String)] = [
     ("West Coast Swing", "Last West Coast Swing"),
     ("Lindy Hop", "Last Lindy Hop"),
@@ -496,9 +475,7 @@ private func closingBlockStart(in rows: [WorkbookImportRow]) -> Int {
     return max(0, rows.count - (endsOnRotary ? 4 : 5))
 }
 
-/// Retags the last occurrence of each closing dance with its "Last …" variant, in play order and
-/// only inside the closing block. Every guideline category counts a "Last …" tag as its base
-/// style, so nothing stops counting.
+/// Every guideline category counts a "Last …" tag as its base style, so nothing stops counting.
 func promoteClosingStyles(in rows: inout [WorkbookImportRow]) {
     let closingBlockStart = closingBlockStart(in: rows)
 
@@ -573,9 +550,7 @@ struct WorkbookImportReviewView: View {
     @State private var currentImportRowID: UUID? = nil
     @State private var failureSummary: [String] = []
 
-    // "Find Spotify Matches" fetches everything up front (cover art shown inline per
-    // row) instead of searching/picking one at a time during Confirm — the DJ approves
-    // each match here, so Confirm just imports whatever's already been approved.
+    // Matches are fetched and approved up front, so Confirm just imports what's already approved.
     @State private var isFetchingSpotifyMatches = false
     @State private var spotifyFetchCompletedCount = 0
     @State private var spotifyFetchTotalCount = 0
@@ -690,6 +665,7 @@ struct WorkbookImportReviewView: View {
                     Text(isFetchingSpotifyMatches ? "Finding Matches… \(spotifyFetchCompletedCount)/\(spotifyFetchTotalCount)" : "Find Spotify Matches")
                 }
                 .buttonStyle(WorkbookPrimaryButtonStyle())
+                .pointingHandCursor()
                 .disabled(isFetchingSpotifyMatches || spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
@@ -756,6 +732,7 @@ struct WorkbookImportReviewView: View {
                 onFinished()
             }
             .buttonStyle(DisplayWindowButtonStyle())
+            .pointingHandCursor()
 
             Spacer()
 
@@ -768,6 +745,7 @@ struct WorkbookImportReviewView: View {
                 }
             }
             .buttonStyle(WorkbookPrimaryButtonStyle(isMuted: !hasImportedEverything))
+            .pointingHandCursor()
             .padding(.trailing, 8)
 
             if hasImportedEverything {
@@ -775,11 +753,13 @@ struct WorkbookImportReviewView: View {
                     onFinished()
                 }
                 .buttonStyle(WorkbookPrimaryButtonStyle())
+                .pointingHandCursor()
             } else {
                 Button(action: startImport) {
                     Text("Import \(remainingImportCount) Song\(remainingImportCount == 1 ? "" : "s")")
                 }
                 .buttonStyle(WorkbookPrimaryButtonStyle())
+                .pointingHandCursor()
                 .disabled(remainingImportCount == 0)
             }
         }
@@ -815,9 +795,7 @@ struct WorkbookImportReviewView: View {
         }
     }
 
-    /// Fetches a Spotify match for every row that still needs one (marked Spotify, no
-    /// bundled Popular Edit match, and no match found yet) — safe to click again after
-    /// fixing a title, since already-matched rows are left alone.
+    /// Safe to click again after fixing a title, since already-matched rows are left alone.
     private func fetchAllSpotifyMatches() {
         let clientID = spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clientID.isEmpty else { return }
@@ -852,9 +830,7 @@ struct WorkbookImportReviewView: View {
 
     private func startImport() {
         let clientID = spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only rows that haven't already succeeded — re-clicking Confirm after fixing a
-        // skipped row must not re-run rows that already imported fine (which would mean
-        // re-prompting the file picker for every local song all over again).
+        // Skip already-imported rows so re-clicking Confirm doesn't re-prompt local file pickers.
         let indicesToImport = rows.indices.filter { !rows[$0].hasBeenImported }
 
         guard !indicesToImport.isEmpty else {
@@ -906,6 +882,8 @@ struct WorkbookImportReviewView: View {
                 } else if let match = row.spotifyMatch, row.isSpotifyApproved {
                     await player.importWorkbookSpotifyMatch(
                         match,
+                        title: row.title,
+                        artist: row.artist,
                         danceStyles: row.resolvedStyles,
                         customStyle: row.customStyleText,
                         manualBPM: row.bpm
@@ -921,6 +899,8 @@ struct WorkbookImportReviewView: View {
                     if let chosen = await presentSpotifyFallback(for: row, clientID: clientID) {
                         await player.importWorkbookSpotifyMatch(
                             chosen,
+                            title: row.title,
+                            artist: row.artist,
                             danceStyles: row.resolvedStyles,
                             customStyle: row.customStyleText,
                             manualBPM: row.bpm
@@ -945,15 +925,15 @@ struct WorkbookImportReviewView: View {
     /// count that didn't grow means the import silently failed and there's nothing to link.
     private func markImported(_ index: Int, since trackCountBefore: Int) {
         rows[index].hasBeenImported = true
-        if player.tracks.count > trackCountBefore {
-            rows[index].importedTrackID = player.tracks.last?.id
+        if player.tracks.count > trackCountBefore, let imported = player.tracks.last {
+            rows[index].importedTrackID = imported.id
+            // The imported song named itself, so the row must follow to avoid disagreeing with the queue.
+            rows[index].title = imported.title
+            rows[index].artist = imported.artist
         }
     }
 
-    /// What compliance measures each imported row against, keyed by row id. Local files
-    /// report their decoded length and Spotify reports `duration_ms`, so length is the real
-    /// audio rather than whatever the workbook's Length column claims — and any trim or
-    /// tempo change the DJ made above is already baked in.
+    /// Length is measured from the real imported audio, not the workbook's Length column.
     private var importedMetrics: [UUID: ImportedSongMetrics] {
         var metrics: [UUID: ImportedSongMetrics] = [:]
         for row in rows {
@@ -1008,6 +988,7 @@ struct WorkbookImportReviewView: View {
                     .onSubmit { runSpotifyFallbackSearch() }
                 Button("Search") { runSpotifyFallbackSearch() }
                     .buttonStyle(WorkbookPrimaryButtonStyle())
+                    .pointingHandCursor()
                     .disabled(isSearchingSpotifyFallback || spotifyFallbackQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(12)
@@ -1050,6 +1031,7 @@ struct WorkbookImportReviewView: View {
                     resolveSpotifyFallback(with: nil)
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
+                .pointingHandCursor()
             }
             .padding(16)
         }
@@ -1103,9 +1085,7 @@ struct WorkbookImportReviewView: View {
         await MainActor.run {
             isPresentingSpotifyFallback = false
         }
-        // Give SwiftUI a beat to fully dismiss any just-closed sheet before presenting
-        // the next one — toggling isPresented true again too quickly can silently fail
-        // to re-show it, which is exactly what made this look "stuck".
+        // Toggling isPresented true again too quickly can silently fail to re-show the sheet.
         try? await Task.sleep(for: .milliseconds(150))
         return await withCheckedContinuation { (continuation: CheckedContinuation<Track?, Never>) in
             spotifyFallbackRow = row
@@ -1218,9 +1198,7 @@ private struct WorkbookRowEditor: View {
         }
     }
 
-    /// Cover art (once imported) beside the title and artist. Long titles truncate rather
-    /// than pushing the rest of the row out of alignment — the full text is in the tooltip
-    /// and can be edited in the song editor.
+    /// Long titles truncate rather than pushing the rest of the row out of alignment.
     private var songCell: some View {
         HStack(spacing: 8) {
             Group {
@@ -1397,9 +1375,7 @@ private struct WorkbookRowEditor: View {
         return "Select styles"
     }
 
-    /// Reuses `Track.formattedStylesDisplay` directly (via a throwaway placeholder Track) so
-    /// this column reads exactly like the audience screen will — e.g. Cross-Step Waltz + Jam
-    /// becomes "Jam (Cross-Step Waltz)", and a promoted closer shows as "Last Rotary Waltz".
+    /// Reuses `Track.formattedStylesDisplay` so this column reads exactly like the audience screen will.
     private func displayStyleText() -> String {
         let previewTrack = Track(
             url: URL(fileURLWithPath: "/"),
@@ -1417,10 +1393,7 @@ private struct WorkbookRowEditor: View {
 
 // MARK: - Song Editor
 
-/// Per-song editor for the workbook review table — the same fields the main player's
-/// metadata editor exposes (cover art, title, artist, start/end trim, tempo), scoped to a
-/// single workbook row. Title and artist always edit the row (they drive Spotify matching);
-/// everything else needs the imported track, so it stays disabled until the song is in.
+/// Everything but title/artist needs the imported track, so it stays disabled until the song is in.
 struct WorkbookSongEditorSheet: View {
     @Binding var row: WorkbookImportRow
     @ObservedObject var player: PlayerController
@@ -1713,8 +1686,15 @@ struct WorkbookSongEditorSheet: View {
 
             let start = (Double(startMinutes) ?? 0) * 60 + (Double(startSeconds) ?? 0)
             let end = (Double(endMinutes) ?? 0) * 60 + (Double(endSeconds) ?? 0)
-            track.startTime = max(0, min(start, track.duration))
-            track.endTime = (end > track.startTime && end < track.duration) ? end : nil
+            let previousStart = track.startTime
+
+            // Only apply fields the DJ actually retyped, since these are rounded to whole seconds.
+            if start != Double(Int(previousStart.rounded())) {
+                track.startTime = max(0, min(start, track.duration))
+            }
+            if end != Double(Int((track.endTime ?? track.duration).rounded())) {
+                track.endTime = (end > track.startTime && end < track.duration) ? end : nil
+            }
 
             if track.source == .local {
                 track.tempoPercentage = tempoOffset
@@ -1723,6 +1703,7 @@ struct WorkbookSongEditorSheet: View {
             player.tracks[index] = track
             if player.currentIndex == index {
                 player.synchronizeActiveTrackSettings()
+                player.recueForTrimChange(previousStartTime: previousStart)
             }
             player.saveTrack(track)
         }

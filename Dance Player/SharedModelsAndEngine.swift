@@ -1,9 +1,4 @@
-//
-//  SharedModelsAndEnginer.swift
-//  Dance Player
-//
-//  Created by Samuel Desai on 6/15/26.
-//
+//  SharedModelsAndEngine.swift
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -64,6 +59,10 @@ struct Track: Identifiable, Equatable {
     var endTime: TimeInterval? = nil
     var tempoPercentage: Double = 0.0 // e.g., +5.0 means 105% speed, -10.0 means 90% speed
 
+    /// Zero is a hard cut; fades are measured in the file's own seconds so they keep musical length when tempo changes.
+    var fadeInDuration: TimeInterval = 0.0
+    var fadeOutDuration: TimeInterval = 0.0
+
     // Manually-entered BPM for the audience screen, independent of tempoPercentage (playback speed).
     var manualBPM: String = ""
 
@@ -71,16 +70,48 @@ struct Track: Identifiable, Equatable {
         let multiplier = 1.0 + (tempoPercentage / 100.0)
         return max(0.25, min(multiplier, 2.0)) // Constrain between 25% and 200% speed
     }
-    
+
     var effectiveDuration: TimeInterval {
         let end = endTime ?? duration
         let delta = max(0, end - startTime)
         return delta / speedMultiplier
     }
+
+    /// The end timestamp with no fallback logic — the point the DJ set, or the file's own end.
+    var resolvedEndTime: TimeInterval {
+        endTime ?? duration
+    }
+
+    /// Playback hands over slightly before the end so a fade finishes before the time observer can overshoot it.
+    static let endStopLead: TimeInterval = 0.25
+
+    var playbackStopTime: TimeInterval {
+        max(startTime, resolvedEndTime - Track.endStopLead)
+    }
+
+    /// The stretch of audio actually heard, in file seconds.
+    var playableRegionDuration: TimeInterval {
+        max(0, playbackStopTime - startTime)
+    }
+
+    /// Fades are scaled down together, preserving their ratio, when trimming shrinks the region below their combined length.
+    private var clampedFades: (fadeIn: TimeInterval, fadeOut: TimeInterval) {
+        let region = playableRegionDuration
+        let requestedIn = max(0, fadeInDuration)
+        let requestedOut = max(0, fadeOutDuration)
+        let total = requestedIn + requestedOut
+        guard region > 0, total > 0 else { return (0, 0) }
+        guard total > region else { return (requestedIn, requestedOut) }
+
+        let scale = region / total
+        return (requestedIn * scale, requestedOut * scale)
+    }
+
+    var effectiveFadeInDuration: TimeInterval { clampedFades.fadeIn }
+    var effectiveFadeOutDuration: TimeInterval { clampedFades.fadeOut }
+    var hasFades: Bool { effectiveFadeInDuration > 0 || effectiveFadeOutDuration > 0 }
     
-    /// Shown to the floor and to the DJ alike, "Last …" included — the audience screen calls
-    /// the closing dances out by name, and `nextSongLeadIn` gives them the definite article
-    /// so it announces as "the Last Rotary Waltz".
+    /// Includes the definite article so "Last …" dances announce as "the Last Rotary Waltz".
     var formattedStylesDisplay: String {
         stylesDisplay(includingJam: true)
     }
@@ -121,9 +152,7 @@ struct Track: Identifiable, Equatable {
     var isJam: Bool { danceStyles.contains("Jam") }
     var isWithStranger: Bool { danceStyles.contains("Dance with a Stranger") }
 
-    /// Tempo changes through these by design — an accelerating waltz speeds up as it goes, and
-    /// the Romany Polka's choreography shifts pace — so a single BPM figure would be a fiction.
-    /// Measured spread on the Romany Polka is ~6 BPM between one window and the next.
+    /// These dances change tempo by design, so a single BPM figure would misrepresent them.
     var hasVariableTempo: Bool {
         !danceStyles.isDisjoint(with: ["Accelerating Waltz", "Romany Polka"])
     }
@@ -199,6 +228,9 @@ struct PersistedTrack: Codable {
     var endTime: Double?
     var tempoPercentage: Double
     var manualBPM: String? = nil
+    /// Absent in projects written before 1.3, which is read as "no fade".
+    var fadeInDuration: Double? = nil
+    var fadeOutDuration: Double? = nil
 
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
@@ -289,9 +321,7 @@ extension NSImage {
 }
 
 private extension NSImage {
-    /// Stored at native resolution — no downscaling. This used to cap the longest edge at
-    /// 800px, which silently threw away the high-resolution art the cover-art picker fetches.
-    /// JPEG rather than PNG keeps a full-size cover to a few hundred kilobytes.
+    /// Stored at native resolution as JPEG, not PNG, keeping full-size cover art to a few hundred KB.
     var projectPackageData: Data? {
         guard let tiffData = tiffRepresentation,
               let source = NSBitmapImageRep(data: tiffData) else {
@@ -304,9 +334,7 @@ private extension NSImage {
 
 private extension Track {
 
-    /// Gated on `hasCustomArtwork` rather than on source: a Spotify track normally re-fetches
-    /// its own art on import, but art the DJ went and downloaded has to be kept or it would
-    /// silently revert to Spotify's 640px version.
+    /// Gated on hasCustomArtwork so DJ-downloaded art isn't silently overwritten by Spotify's lower-resolution version.
     var persistableArtworkData: Data? {
         guard hasCustomArtwork else { return nil }
         return artwork?.projectPackageData
@@ -327,6 +355,8 @@ struct ProjectPackageTrack: Codable {
     var endTime: Double?
     var tempoPercentage: Double
     var manualBPM: String? = nil
+    var fadeInDuration: Double? = nil
+    var fadeOutDuration: Double? = nil
     var measuredLoudness: Double?
     var gainCorrectiondB: Double
     var loudnessAnalysisVersion: Int? = nil
@@ -358,6 +388,8 @@ struct ProjectPackageTrack: Codable {
         self.endTime = track.endTime
         self.tempoPercentage = track.tempoPercentage
         self.manualBPM = track.manualBPM
+        self.fadeInDuration = track.fadeInDuration
+        self.fadeOutDuration = track.fadeOutDuration
         self.measuredLoudness = track.measuredLoudness
         self.gainCorrectiondB = track.gainCorrectiondB
         self.loudnessAnalysisVersion = track.loudnessAnalysisVersion
@@ -386,6 +418,8 @@ struct ProjectPackageTrack: Codable {
             endTime: endTime,
             tempoPercentage: tempoPercentage,
             manualBPM: manualBPM,
+            fadeInDuration: fadeInDuration,
+            fadeOutDuration: fadeOutDuration,
             measuredLoudness: measuredLoudness,
             gainCorrectiondB: gainCorrectiondB,
             loudnessAnalysisVersion: loudnessAnalysisVersion,
@@ -535,14 +569,86 @@ private struct TaggedStyleRegistry {
     }
 }
 
+/// Which end of a Spotify track's trim is being auditioned.
+enum SpotifyPreviewEdge {
+    case start
+    case end
+}
+
+/// Hidden from the ordinary Add menu; the floor hears the file's own title and danceStyles, not displayName — that's the joke.
+struct CursedSong: Identifiable, CaseIterable {
+    let id: String
+    let displayName: String
+    let subtitle: String
+    let resourceName: String
+    let fileExtension: String
+    let danceStyles: Set<String>
+    /// Filled in when the dance isn't on the predefined list, in which case `danceStyles` holds
+    /// "Other" and this is what the floor is actually told.
+    var customStyle: String = ""
+    var knownBPM: Int? = nil
+
+    /// Nil until the song has actually been added to the app bundle; the menu shows that rather than failing silently.
+    var bundledURL: URL? {
+        Bundle.main.url(forResource: resourceName, withExtension: fileExtension, subdirectory: "audio files")
+            ?? Bundle.main.url(forResource: resourceName, withExtension: fileExtension)
+    }
+
+    var isInstalled: Bool { bundledURL != nil }
+
+    static let allCases: [CursedSong] = [
+        CursedSong(
+            id: "cursed-bnp",
+            displayName: "Cursed BNP",
+            subtitle: "Wally's \"normal version\". It is not normal.",
+            resourceName: "BNP (Normal Version, Wally)",
+            fileExtension: "mp3",
+            danceStyles: ["Bohemian National Polka"]
+        ),
+        CursedSong(
+            id: "romany-national-polka",
+            displayName: "Romany National Polka",
+            subtitle: "Two polkas that should never have met",
+            resourceName: "Romany National Polka",
+            fileExtension: "mp3",
+            // Not on the predefined list, and deliberately not filed under Romany Polka: it
+            // isn't that dance, and tagging it as one would offer the Romany Polka's intro.
+            danceStyles: ["Other"],
+            customStyle: "Romany National Polka"
+        ),
+        CursedSong(
+            id: "helsinki-polka",
+            displayName: "Tokyo Polka (Metal)",
+            subtitle: "Hatsune Miku, with distortion pedals",
+            resourceName: "helsinkipolka",
+            fileExtension: "mp3",
+            danceStyles: ["Tokyo Polka"]
+        ),
+        CursedSong(
+            id: "nadie-como-tu-metal",
+            displayName: "Nadie Como Tu (Metal Bachata)",
+            subtitle: "A bachata that went completely wrong.",
+            resourceName: "Nadie Como Tu (Bachata Version)",
+            fileExtension: "mp3",
+            danceStyles: ["Bachata"]
+        ),
+        CursedSong(
+            id: "lose-control-accelerating",
+            displayName: "Lose Control (Accelerating)",
+            subtitle: "You Actually Lose Control®",
+            resourceName: "Lose Control (Accelerating V 2.0)",
+            fileExtension: "mp3",
+            danceStyles: ["Accelerating Waltz"]
+        ),
+    ]
+}
+
 enum SpotifyImportKind {
     case track
     case playlist
 }
 
-/// Cover art for the Popular Edits that ship with the app, read from each file's own tags.
-/// Cached so the workbook import table can show a matched row's artwork before the song has
-/// been imported, without re-reading the file for every redraw.
+/// Cached so the workbook import table can preview artwork before import without re-reading the file on every redraw.
 @MainActor
 enum PopularEditArtwork {
     private static var cache: [String: NSImage] = [:]
@@ -571,9 +677,7 @@ struct PopularEdit: Identifiable, CaseIterable {
     let resourceName: String
     let fileExtension: String
     let danceStyles: Set<String>
-    /// Set where the edit's tempo is known. These are fixed recordings we ship, so a published
-    /// figure beats an estimate — and detection leaves a known tempo alone rather than
-    /// replacing it with its own reading.
+    /// Known tempo for shipped recordings; detection leaves it alone rather than overwriting it with an estimate.
     var knownBPM: Int? = nil
 
     var bundledURL: URL? {
@@ -1038,10 +1142,7 @@ final class SpotifyService {
         let request = try await authorizedRequest(url, clientID: clientID)
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        // Spotify briefly rate-limits right after a fresh token exchange fairly often —
-        // this used to fall straight through to validate() and throw with no retry,
-        // which made the very next call (e.g. the first workbook Spotify search) look
-        // like it silently found nothing.
+        // Spotify can rate-limit right after a fresh token exchange, so retry instead of throwing immediately.
         if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429, retryCount < 3 {
             let retryAfterSeconds = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 1.0
             try await Task.sleep(nanoseconds: UInt64(max(0.5, retryAfterSeconds) * 1_000_000_000))
@@ -1288,9 +1389,7 @@ private struct Biquad {
         return y
     }
 
-    /// Stage 1: high-shelf approximating the acoustic effect of the head.
-    /// Derived from the analog prototype so it's correct at any sample rate; at 48kHz it
-    /// reproduces the coefficients published in BS.1770 exactly.
+    /// Derived from the analog prototype so coefficients stay correct at any sample rate, matching BS.1770 exactly at 48kHz.
     static func kWeightingShelf(sampleRate: Double) -> Biquad {
         let gain = 3.999843853973347, q = 0.7071752369554196, cutoff = 1681.974450955533
         let k = tan(.pi * cutoff / sampleRate)
@@ -1321,9 +1420,7 @@ private struct Biquad {
 
 // MARK: - High-resolution cover art
 
-/// Cover art from Apple's iTunes Search API, which needs no key and serves up to 3000×3000.
-/// Spotify's Web API caps album art at 640×640, so this is the source when the DJ explicitly
-/// asks for better art — including for Spotify tracks.
+/// iTunes Search API serves art up to 3000x3000, versus Spotify's 640x640 cap.
 enum ITunesArtworkLookup {
     /// The `100x100bb` segment of an artwork URL is a resize instruction, not a fixed asset,
     /// so any size up to 3000 can be requested. Anything larger is served as 3000.
@@ -1413,33 +1510,86 @@ class PlayerController: ObservableObject {
     /// and the gain mix went from silently inert to actually applied.
     static let loudnessAnalysisVersion = 2
 
-    /// Parameters built with the plain initializer carry `kCMPersistentTrackID_Invalid`,
-    /// match no track, and are dropped without error — the ID is what makes the gain real.
-    static func audioMix(forGaindB gaindB: Double, trackID: CMPersistentTrackID) -> AVMutableAudioMix {
+    /// Ramps are positioned on the file's own timeline (same as startTime/endTime) so they stay put when tempo scales playback.
+    /// Parameters built with the plain initializer carry an invalid track ID and are dropped without error.
+    static func audioMix(
+        forGaindB gaindB: Double,
+        trackID: CMPersistentTrackID,
+        fadeIn: TimeInterval = 0,
+        fadeOut: TimeInterval = 0,
+        fadeInStart: TimeInterval = 0,
+        fadeOutEnd: TimeInterval = 0
+    ) -> AVMutableAudioMix {
         let mix = AVMutableAudioMix()
         let parameters = AVMutableAudioMixInputParameters()
         parameters.trackID = trackID
-        parameters.setVolume(pow(10.0, Float(gaindB) / 20.0), at: .zero)
+
+        let gain = pow(10.0, Float(gaindB) / 20.0)
+
+        func time(_ seconds: TimeInterval) -> CMTime {
+            CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        }
+
+        // Instructions must be set in ascending time order; a fade-in at time zero skips the initial level to avoid a collision.
+        if fadeIn <= 0 || fadeInStart > 0 {
+            parameters.setVolume(gain, at: .zero)
+        }
+
+        if fadeIn > 0 {
+            parameters.setVolumeRamp(
+                fromStartVolume: 0,
+                toEndVolume: gain,
+                timeRange: CMTimeRange(start: time(fadeInStart), duration: time(fadeIn))
+            )
+        }
+
+        if fadeOut > 0 {
+            parameters.setVolumeRamp(
+                fromStartVolume: gain,
+                toEndVolume: 0,
+                timeRange: CMTimeRange(start: time(fadeOutEnd - fadeOut), duration: time(fadeOut))
+            )
+        }
+
         mix.inputParameters = [parameters]
         return mix
+    }
+
+    static func audioMix(for track: Track, trackID: CMPersistentTrackID) -> AVMutableAudioMix {
+        audioMix(
+            forGaindB: track.gainCorrectiondB,
+            trackID: trackID,
+            fadeIn: track.effectiveFadeInDuration,
+            fadeOut: track.effectiveFadeOutDuration,
+            fadeInStart: track.startTime,
+            fadeOutEnd: track.playbackStopTime
+        )
     }
 
     /// Resolved per file so applying a gain needn't await an asset load at play time.
     private var audioTrackIDCache: [URL: CMPersistentTrackID] = [:]
 
-    /// Synchronous on a cache hit; the async path only runs for a file new this session.
-    private func applyGain(_ gaindB: Double, to item: AVPlayerItem, url: URL) {
+    /// `then` runs synchronously on a cache hit, asynchronously the first time a file is seen this session, and always runs even if the track ID can't be resolved.
+    private func applyAudioMix(
+        for track: Track,
+        to item: AVPlayerItem,
+        then completion: (() -> Void)? = nil
+    ) {
+        let url = track.url
         if let trackID = audioTrackIDCache[url] {
-            item.audioMix = Self.audioMix(forGaindB: gaindB, trackID: trackID)
+            item.audioMix = Self.audioMix(for: track, trackID: trackID)
+            completion?()
             return
         }
 
         let asset = item.asset
         Task { @MainActor [weak self] in
-            guard let trackID = try? await asset.loadTracks(withMediaType: .audio).first?.trackID
-            else { return }
-            self?.audioTrackIDCache[url] = trackID
-            item.audioMix = Self.audioMix(forGaindB: gaindB, trackID: trackID)
+            let trackID = try? await asset.loadTracks(withMediaType: .audio).first?.trackID
+            if let trackID {
+                self?.audioTrackIDCache[url] = trackID
+                item.audioMix = Self.audioMix(for: track, trackID: trackID)
+            }
+            completion?()
         }
     }
 
@@ -1467,6 +1617,21 @@ class PlayerController: ObservableObject {
     @Published var isPresentingSpotifyKeyEditor = false
     @Published var isDisplayWindowOpen = false
     @Published var isCoverArtWindowOpen = false
+    /// True between a jam finishing and the DJ moving on: the floor is already gathered, so
+    /// the pivot call goes out before the next song is announced rather than after it.
+    @Published var isShowingPivots = false
+
+    @Published var pivotScreenEnabled: Bool = UserDefaults.standard.object(
+        forKey: "DancePlayer.pivotScreenEnabled"
+    ) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(pivotScreenEnabled, forKey: "DancePlayer.pivotScreenEnabled")
+            if !pivotScreenEnabled { isShowingPivots = false }
+        }
+    }
+
+    /// The song whose timings are being edited, or nil when that window is closed.
+    @Published var timingEditorTrackID: UUID? = nil
 
     @Published var isDraggingDivider = false
     @Published var isAdvancedSettingsOpen = false
@@ -1499,28 +1664,66 @@ class PlayerController: ObservableObject {
     /// Whole-queue snapshots rather than per-operation inverses: the queue is small, and a
     /// snapshot can't get out of step with the operation it's meant to reverse.
     private var undoStack: [QueueSnapshot] = []
-    /// Drives the Edit menu's title and enabled state.
+    private var redoStack: [QueueSnapshot] = []
+    private static let undoDepth = 25
+
+    /// Drives the Edit menu's titles and enabled states.
     @Published var undoActionLabel: String? = nil
+    @Published var redoActionLabel: String? = nil
 
     func recordUndoSnapshot(_ label: String) {
-        undoStack.append(QueueSnapshot(tracks: tracks, currentTrackID: currentTrack?.id, label: label))
-        if undoStack.count > 25 { undoStack.removeFirst() }
+        push(&undoStack, QueueSnapshot(tracks: tracks, currentTrackID: currentTrack?.id, label: label))
         undoActionLabel = label
+
+        // A fresh edit forks the history: anything on the redo stack was recorded against a
+        // queue that no longer exists, and replaying it would drop this edit on the floor.
+        redoStack.removeAll()
+        redoActionLabel = nil
     }
 
     func undoLastChange() {
         guard let snapshot = undoStack.popLast() else { return }
 
+        // Labelled with the action being reversed, so the menu reads "Redo Remove Song"
+        // for the same edit the Undo item just named.
+        push(&redoStack, QueueSnapshot(tracks: tracks, currentTrackID: currentTrack?.id, label: snapshot.label))
+        redoActionLabel = snapshot.label
+
+        restore(snapshot)
+        undoActionLabel = undoStack.last?.label
+    }
+
+    func redoLastChange() {
+        guard let snapshot = redoStack.popLast() else { return }
+
+        push(&undoStack, QueueSnapshot(tracks: tracks, currentTrackID: currentTrack?.id, label: snapshot.label))
+        undoActionLabel = snapshot.label
+
+        restore(snapshot)
+        redoActionLabel = redoStack.last?.label
+    }
+
+    private func push(_ stack: inout [QueueSnapshot], _ snapshot: QueueSnapshot) {
+        stack.append(snapshot)
+        if stack.count > Self.undoDepth { stack.removeFirst() }
+    }
+
+    private func restore(_ snapshot: QueueSnapshot) {
         tracks = snapshot.tracks
         // Followed by id — the restored queue may hold the song at a different position.
         currentIndex = snapshot.currentTrackID.flatMap { id in
             tracks.firstIndex(where: { $0.id == id })
         }
-        undoActionLabel = undoStack.last?.label
 
         if currentIndex == nil {
             avPlayer?.pause()
             isPlaying = false
+        }
+
+        // Focus must resign first, or a field mid-edit holds its own value and re-saves it over the undone state on close.
+        if let editingID = selectedTrackForEditing?.id {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            selectedTrackForEditing = tracks.first(where: { $0.id == editingID })
         }
 
         synchronizeActiveTrackSettings()
@@ -1529,9 +1732,7 @@ class PlayerController: ObservableObject {
 
     // MARK: - Set clock
 
-    /// Nil until the DJ configures it, and deliberately never persisted — every night gets its
-    /// own end time, so a stale one from last week would be worse than none.
-    /// On the controller rather than the view so the View menu can open it too.
+    /// Deliberately not persisted — each night needs a fresh end time, not a stale one from before.
     @Published var isPresentingSetClockConfig = false
     @Published var setClockEndTime: Date? = nil
     /// The DJ's estimate of the gap between songs — announcements, finding a partner.
@@ -1603,9 +1804,7 @@ class PlayerController: ObservableObject {
     }
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
-    /// The streaming standard, which also matches the level Spotify plays its own tracks at.
-    /// Sits above some quiet material: `gainCorrection` caps each boost at the track's real
-    /// peak headroom, so those land short of target rather than clipping.
+    /// Matches typical streaming loudness; per-track gain is capped by peak headroom so quiet material won't clip.
     @Published var targetLoudnessLUFS: Double = -14.0
     @Published var isBatchProcessingLoudness = false
     @Published var loudnessBatchProgress: Double = 0.0
@@ -1619,10 +1818,7 @@ class PlayerController: ObservableObject {
     @Published var selectedTrackForEditing: Track? = nil
 
     // MARK: - Advanced Settings
-    // These are project-specific (saved/loaded with the project package, see
-    // ProjectPackageExport) — every new project starts with them disabled, regardless
-    // of what a previously-opened project had set.
-    /// Single global toggle — when on, every track's manual BPM shows in the main control view (not the audience screen).
+    /// Project-specific (always starts disabled for a new project). Single global toggle for showing manual BPM in the main control view.
     @Published var showTempo: Bool = false
     @Published var autoplayEnabled: Bool = false
     @Published var autoplayDelaySeconds: Double = 10.0
@@ -1630,6 +1826,20 @@ class PlayerController: ObservableObject {
     @Published var autoplayCountdownActive: Bool = false
     /// Seconds left in the current autoplay countdown, ticking down once a second.
     @Published var autoplayCountdownRemaining: Double = 0
+
+    /// The dance intro, on its own player so it can't disturb the cued song.
+    @Published var isPlayingIntro = false
+    private var introPlayer: AVPlayer?
+    private var introFinishedObserver: NSObjectProtocol?
+    private var introBoundaryObserver: Any?
+    /// These are a handful of fixed recordings shipped with the app, scanned once and reused —
+    /// not re-measured on every press.
+    private var introAudibleDurationCache: [URL: TimeInterval] = [:]
+
+    /// Which trim edge is being auditioned on Spotify, so the button can offer to stop it.
+    @Published var spotifyPreviewEdge: SpotifyPreviewEdge? = nil
+    private var spotifyPreviewTask: Task<Void, Never>?
+    static let spotifyPreviewLength: TimeInterval = 5
 
     @Published var spotifyStatusMessage: String? = nil
     @Published var isSpotifyImporting = false
@@ -1652,6 +1862,7 @@ class PlayerController: ObservableObject {
     private var timeObserverToken: Any?
     private var spotifyProgressTask: Task<Void, Never>?
     private var projectAutosaveTask: Task<Void, Never>?
+    private var librarySaveTask: Task<Void, Never>?
     private var isPresentingCloseSavePrompt = false
     private var isHandlingSongEnd = false
     private var displayWindowController: NSWindowController?
@@ -1711,9 +1922,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Switches an import that's already running from a spinner to a determinate bar, once
-    /// there's a count to show. Separate from `beginImportActivity` so supplying the total
-    /// late doesn't open a second activity that would need its own `finishImportActivity`.
+    /// Switches a running import from a spinner to a determinate bar; kept separate from `beginImportActivity` so a late total doesn't open a second activity.
     func setImportTotal(_ total: Int, message: String? = nil) {
         guard activeImportOperations > 0 else { return }
         if let message { importStatusMessage = message }
@@ -1749,9 +1958,7 @@ class PlayerController: ObservableObject {
         return tracks.prefix(index + 1).filter { !$0.isSkipped }.count
     }
 
-    /// Row actions address songs by id. A row's position is only valid until the next
-    /// reorder, and `ForEach` moves existing views rather than rebuilding them — so an index
-    /// captured in a row's closure ends up pointing at whatever song now sits there.
+    /// Addressed by id, not index — indices go stale across reorders since ForEach reuses views rather than rebuilding them.
     func toggleSkipTrack(id: UUID) {
         guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
         toggleSkipTrack(at: index)
@@ -1760,6 +1967,65 @@ class PlayerController: ObservableObject {
     func removeTrack(id: UUID) {
         guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
         removeTrack(at: index)
+    }
+
+    /// One undo entry for the whole batch, not one per track — a multi-select delete is a
+    /// single action from the DJ's point of view, and should take one ⌘Z to reverse.
+    func removeTracks(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        recordUndoSnapshot(ids.count == 1 ? "Remove Song" : "Remove \(ids.count) Songs")
+
+        for id in ids {
+            guard let index = tracks.firstIndex(where: { $0.id == id }) else { continue }
+
+            if currentIndex == index {
+                avPlayer?.pause()
+                avPlayer = nil
+                stopSpotifyProgressMonitor()
+                isPlaying = false
+                currentTime = 0
+                duration = 0
+                currentIndex = nil
+            } else if let cur = currentIndex, let removedIndex = tracks.firstIndex(where: { $0.id == id }), cur > removedIndex {
+                currentIndex = cur - 1
+            }
+
+            let removed = tracks.remove(at: index)
+            forgetLibraryEntry(songHash: removed.songHash)
+        }
+    }
+
+    /// Same one-entry-per-batch rationale as `removeTracks`. Sets every track to the same
+    /// skipped state rather than toggling each independently, since a mixed selection toggled
+    /// would otherwise skip some and unskip others in one action.
+    func setSkipped(_ skipped: Bool, forIDs ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        recordUndoSnapshot(skipped
+            ? (ids.count == 1 ? "Skip Song" : "Skip \(ids.count) Songs")
+            : (ids.count == 1 ? "Unskip Song" : "Unskip \(ids.count) Songs"))
+
+        var mustAdvancePastCurrent = false
+        for id in ids {
+            guard let index = tracks.firstIndex(where: { $0.id == id }), tracks[index].isSkipped != skipped else { continue }
+            tracks[index].isSkipped = skipped
+            saveTrack(tracks[index])
+            if skipped, currentIndex == index { mustAdvancePastCurrent = true }
+        }
+        scheduleProjectAutosave()
+        objectWillChange.send()
+
+        if mustAdvancePastCurrent, let current = currentIndex {
+            if let nextPlayable = playableIndex(after: current) ?? playableIndex(before: current) {
+                play(index: nextPlayable)
+            } else {
+                avPlayer?.pause()
+                stopSpotifyProgressMonitor()
+                isPlaying = false
+                currentTime = 0
+                duration = 0
+                currentIndex = nil
+            }
+        }
     }
 
     func play(id: UUID) {
@@ -1879,6 +2145,12 @@ class PlayerController: ObservableObject {
                 return event // let the text field handle it normally
             }
 
+            // The timing editor runs its own preview transport; space there means "audition
+            // this edit", not "start the set".
+            if self.isTimingEditorPresented {
+                return event
+            }
+
             // Menu shortcuts belong to the menu bar.
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if modifiers.contains(.command) || modifiers.contains(.control) {
@@ -1974,6 +2246,33 @@ class PlayerController: ObservableObject {
         projectRootFolderURL?.appendingPathComponent("artwork", isDirectory: true)
     }
 
+    /// Debounced because the library file inlines every track's artwork, making a save an expensive multi-megabyte encode.
+    private var pendingLibrarySaveTrackID: UUID?
+
+    func saveTrackSoon(_ track: Track) {
+        pendingLibrarySaveTrackID = track.id
+        librarySaveTask?.cancel()
+        librarySaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.flushPendingTrackSave() }
+        }
+    }
+
+    /// Always re-reads the track from the queue: the debounce may have outlived several edits,
+    /// and the last state is the one worth keeping.
+    func flushPendingTrackSave() {
+        librarySaveTask?.cancel()
+        librarySaveTask = nil
+
+        guard let trackID = pendingLibrarySaveTrackID else { return }
+        pendingLibrarySaveTrackID = nil
+
+        if let track = tracks.first(where: { $0.id == trackID }) {
+            saveTrack(track)
+        }
+    }
+
     private func scheduleProjectAutosave() {
         guard hasLoadedProject, autosaveEnabled, projectRootFolderURL != nil else { return }
 
@@ -1991,10 +2290,7 @@ class PlayerController: ObservableObject {
         let projectName = safeProjectName
         let projectFileDestination = projectFileURL
 
-        // The actual work here is a full pass of file copies + JSON encoding over every
-        // track in the library — background it so routine autosaves (fired after every
-        // song add/edit) never block the UI thread. Serialized, because two overlapping
-        // saves writing the same .dbdj would leave a torn file.
+        // Backgrounded since a save is a full copy+encode pass over the whole library; serialized so overlapping saves can't tear the file.
         projectSaveQueue.async { [weak self] in
             guard let self else { return }
             do {
@@ -2015,10 +2311,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Zips into our own container, then overwrites the `.dbdj` in place. The sandbox grants
-    /// read-write to the picked *file*, not its folder, so a sibling temp (which `replaceItemAt`
-    /// and `.atomic` both need) can't be created. Staged in full first, so an interrupted write
-    /// leaves a complete archive behind.
+    /// Staged in a temp file first, since the sandbox only grants write access to the picked file itself, not a sibling temp in its folder.
     private func writeProjectFile(from projectFolderURL: URL, to destinationURL: URL) throws {
         let fileManager = FileManager.default
         let scratchURL = projectsWorkingParentURL
@@ -2072,9 +2365,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Saves and unloads the project when the last window closes. The app keeps running, so
-    /// without this the project is still loaded when a window reopens and the DJ has to quit
-    /// to get back to the welcome screen.
+    /// Unloads the project on last-window-close since the app keeps running and would otherwise reopen with it still loaded.
     func closeProjectAfterLastWindowClosed() {
         guard hasLoadedProject else { return }
 
@@ -2123,13 +2414,12 @@ class PlayerController: ObservableObject {
         hasRunLaunchRelevel = false
     }
 
-    /// Writes any debounced autosave now and calls back once it has landed on disk. Saving is
-    /// a 350ms debounce then a background re-zip; nothing used to wait for it, so quitting in
-    /// that window lost the edit. `projectSaveQueue` is serial, hence the trailing block.
+    /// Save is a debounced background re-zip that quitting could otherwise cut off mid-write; runs on the serial save queue.
     func flushPendingSaves(completion: @escaping () -> Void) {
         projectAutosaveTask?.cancel()
         projectAutosaveTask = nil
 
+        flushPendingTrackSave()
         saveCurrentProjectPackage()
 
         projectSaveQueue.async {
@@ -2254,9 +2544,7 @@ class PlayerController: ObservableObject {
         url.standardizedFileURL.path.hasPrefix(Bundle.main.bundleURL.standardizedFileURL.path)
     }
 
-    /// Content hashes of the Popular Edits shipped in the app, mapped to their bundled file
-    /// name. Keyed by hash rather than URL because importing a track used to copy it into the
-    /// project and repoint `track.url` at the copy — those projects still need recognising.
+    /// Keyed by content hash, not URL, since older imports copied the file into the project and repointed track.url at the copy.
     private lazy var bundledPopularEditFileNames: [String: String] = {
         var result: [String: String] = [:]
         for edit in PopularEdit.allCases {
@@ -2329,9 +2617,7 @@ class PlayerController: ObservableObject {
         guard let projectFilesFolderURL else { return }
 
         do {
-            // Ensure both subdirectories exist before any file operation —
-            // this matters when materialize is called on the first track add
-            // before the autosave has had a chance to run createDirectory.
+            // Needed here since the first track add can happen before autosave has created these directories.
             try ensureDirectoryExists(at: projectFilesFolderURL)
             if let projectArtworkFolderURL {
                 try ensureDirectoryExists(at: projectArtworkFolderURL)
@@ -2348,9 +2634,7 @@ class PlayerController: ObservableObject {
                 in: projectFilesFolderURL
             )
 
-            // A Popular Edit ships inside the app, so it plays straight from the bundle
-            // rather than being copied into the project — the audio is already on every
-            // machine that can open the file.
+            // Popular Edits play straight from the bundle rather than being copied, since the audio already ships with the app.
             if !isBundledResource(sourceURL) {
                 if sourceURL.standardizedFileURL != destinationAudioURL.standardizedFileURL {
                     if FileManager.default.fileExists(atPath: destinationAudioURL.path) {
@@ -2489,7 +2773,9 @@ class PlayerController: ObservableObject {
         let previousTrack = previousTrackOverride ?? currentTrack
         removeTimeObserver()
         stopSpotifyProgressMonitor()
+        stopIntro()
         showThankYouScreen = false
+        isShowingPivots = false
         currentIndex = index
         let track = tracks[index]
 
@@ -2520,12 +2806,15 @@ class PlayerController: ObservableObject {
         // Preserves vocal & instrumental pitch perfectly when scaling playback rate
         playerItem.audioTimePitchAlgorithm = .spectral
 
-        // A gain cached by an older analysis version isn't trustworthy enough to apply —
-        // play flat and re-measure, which swaps in the corrected mix once it lands.
+        // A gain cached under an older analysis version isn't trusted — play flat and re-measure rather than apply it.
+        let mixTrack: Track
         if track.loudnessAnalysisVersion >= Self.loudnessAnalysisVersion {
-            applyGain(track.gainCorrectiondB, to: playerItem, url: track.url)
+            mixTrack = track
         } else {
             calculateLoudness(forTrackAt: index)
+            var flatTrack = track
+            flatTrack.gainCorrectiondB = 0
+            mixTrack = flatTrack
         }
 
         avPlayer = AVPlayer(playerItem: playerItem)
@@ -2558,32 +2847,30 @@ class PlayerController: ObservableObject {
             }
             
             // Stop and cycle sequence when crossing custom end timestamp barriers
-            let stopThreshold = currentTrack.endTime ?? currentTrack.duration
-            if absoluteSeconds >= stopThreshold - 0.25 {
+            if absoluteSeconds >= currentTrack.playbackStopTime {
                 self.handleSongEnded()
             }
         }
         
-        if autoPlay {
-            isBetweenSongs = false
-            avPlayer?.play()
-            avPlayer?.rate = Float(track.speedMultiplier) // Initialize target tempo scale
-            isPlaying = true
-        } else {
+        // Mix must attach before playback starts — a fade shorter than the async track-ID load would finish before the ramp exists, playing at full volume instead.
+        applyAudioMix(for: mixTrack, to: playerItem) { [weak self] in
+            guard autoPlay, let self, self.currentTrack?.id == track.id else { return }
+
+            self.isBetweenSongs = false
+            self.avPlayer?.play()
+            self.avPlayer?.rate = Float(track.speedMultiplier) // Initialize target tempo scale
+            self.isPlaying = true
+            self.reportPlaybackPosition(requested: track.startTime, label: "cue and play")
+        }
+
+        if !autoPlay {
             isPlaying = false
         }
     }
     
     // MARK: - Isolated ReplayGain Target Processing
 
-    /// Gated integrated loudness (LUFS) of a track's playable region, plus its sample peak.
-    ///
-    /// Implements ITU-R BS.1770 / EBU R128: K-weighting, 400ms blocks overlapping 75%,
-    /// a -70 LUFS absolute gate and a -10 LU relative gate.
-    /// Re-derives gain after a tempo change; the compressor render isn't repeated. This is about
-    /// headroom, not level: the phase vocoder holds pitch so loudness barely moves (-0.08 dB at
-    /// ±5%), but resynthesis overshoots peaks (0.97 measured 1.13 at +5%) and would clip a boost
-    /// sized against the unstretched peak.
+    /// Re-derives gain after a tempo change: resynthesis overshoots peaks even though loudness barely moves, so cached headroom can no longer be trusted.
     func relevelGainForTempoChange(trackID: UUID) {
         guard let index = trackIndex(for: trackID), tracks[index].source == .local else { return }
         let track = tracks[index]
@@ -2609,7 +2896,7 @@ class PlayerController: ObservableObject {
                 self.saveTrack(self.tracks[index])
 
                 if self.currentIndex == index, let item = self.avPlayer?.currentItem {
-                    self.applyGain(correction, to: item, url: self.tracks[index].url)
+                    self.applyAudioMix(for: self.tracks[index], to: item)
                 }
 
                 print(String(
@@ -2621,9 +2908,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Measures the track as it will actually be heard: trimmed, and time-stretched by its
-    /// tempo through the same `.spectral` algorithm playback uses. Falls back to reading the
-    /// file directly at normal speed, which is much cheaper than running the vocoder.
+    /// Measures loudness as actually played (trimmed and time-stretched); skips the vocoder and reads the file directly when tempo is unchanged.
     private func measureLoudnessAtPlaybackSpeed(of track: Track) -> (loudness: Double, peak: Float)? {
         guard track.tempoPercentage != 0 else { return measureLoudness(of: track) }
 
@@ -2791,9 +3076,7 @@ class PlayerController: ObservableObject {
         )
     }
 
-    /// The BS.1770 gating stage, shared by the file reader and the tempo-stretched reader so
-    /// the two can't drift apart: 400ms blocks from 100ms segments, a -70 LUFS absolute gate
-    /// and a -10 LU relative gate.
+    /// Shared BS.1770 gating stage so the file reader and tempo-stretched reader can't drift apart in their thresholds.
     private static func gatedLoudness(
         segmentEnergy: [[Double]],
         segmentFrames: Int,
@@ -2836,9 +3119,7 @@ class PlayerController: ObservableObject {
 
     // MARK: - BPM detection
 
-    /// Spectral-flux onset envelope, then autocorrelation weighted by a log-Gaussian tempo prior
-    /// and a comb over the lag's harmonics. Validated to within 0.1 BPM on known tempos (BNP 104,
-    /// Barbie 110) and 1 BPM on synthetic click tracks from 72 to 186.
+    /// Autocorrelation over a spectral-flux onset envelope, weighted by a tempo prior; accurate to about 1 BPM on test tracks.
     func detectBPM(of track: Track) -> Double? {
         guard !track.hasVariableTempo else { return nil }
         // A shipped edit with a published tempo is authoritative; don't estimate over it.
@@ -3001,10 +3282,7 @@ class PlayerController: ObservableObject {
     /// Social-dance music lives here; anything outside is an octave error, not a tempo.
     static let detectableBPMRange: ClosedRange<Double> = 60...210
 
-    /// Picks the octave of `bpm` best fitting the style's window. Powers of two only — a 3:2
-    /// relative moves the beat rather than recounting it. Inside the window wins; else a reading
-    /// within 5 BPM of it (slower one, so a polka at 104 doesn't double to 208); else nearest,
-    /// ties to the faster (a lindy hop reading 89 is really 178).
+    /// Adjusts by octaves (powers of two) only; prefers the style window, then the nearest value within 5 BPM below it, ties going to the faster reading.
     static func octaveFitted(
         _ bpm: Double,
         to range: ClosedRange<Double>?,
@@ -3151,9 +3429,7 @@ class PlayerController: ObservableObject {
         return refinedBPM
     }
 
-    /// Detection always reports a whole number: sub-BPM precision from an estimate reads as
-    /// more certainty than there is. A decimal typed by the DJ is kept — the BPM fields are
-    /// free text and `parseBPM` reads a Double — so "119.5" survives if that's deliberate.
+    /// Detected BPM always rounds to a whole number; a DJ-typed decimal is preserved since these fields are free text.
     static func formatBPM(_ bpm: Double) -> String {
         String(Int(bpm.rounded()))
     }
@@ -3170,9 +3446,7 @@ class PlayerController: ObservableObject {
         }
         guard !targets.isEmpty, !isDetectingBPM else { return }
 
-        // Its own counters as well as the shared import activity: the import overlay lives
-        // behind the Advanced Settings sheet, so a run started from there needs progress the
-        // sheet itself can draw.
+        // Tracks its own progress separately since the import overlay lives behind the Advanced Settings sheet.
         isDetectingBPM = true
         bpmDetectionCompleted = 0
         bpmDetectionTotal = targets.count
@@ -3230,9 +3504,162 @@ class PlayerController: ObservableObject {
         return max(0, needed - gainCorrection(forLoudness: loudness, peak: peak))
     }
 
-    /// Renders a compressed copy of a song gain alone can't lift to target — peaks near full
-    /// scale cap the boost, so the crest factor has to come down first. Once, at import, local
-    /// files only, ALAC so the re-render is lossless.
+    /// Renders once at import, local files only, as lossless ALAC.
+    // MARK: - Seekable audio
+
+    /// Compared on a background queue, so its conformances have to be free of the main actor.
+    nonisolated enum MP3BitrateMode: Equatable, Sendable {
+        case constant
+        case variable
+        case notMP3
+    }
+
+    /// Frame-header walk, no decoding: each header says how long its own frame is, so the file
+    /// can be stepped through by arithmetic.
+    static func mp3BitrateMode(of url: URL) -> MP3BitrateMode {
+        guard url.pathExtension.lowercased() == "mp3",
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              data.count > 10
+        else { return .notMP3 }
+
+        var offset = 0
+        // ID3v2 sits in front of the audio; its length is a syncsafe integer, so each byte
+        // carries only seven bits.
+        if data[0] == 0x49, data[1] == 0x44, data[2] == 0x33 {
+            offset = 10
+                + (Int(data[6] & 0x7f) << 21) + (Int(data[7] & 0x7f) << 14)
+                + (Int(data[8] & 0x7f) << 7) + Int(data[9] & 0x7f)
+        }
+
+        let bitrates = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+        let sampleRates = [44100, 48000, 32000, 0]
+
+        var framesPerBitrate: [Int: Int] = [:]
+        var framesRead = 0
+
+        while offset + 4 < data.count, framesRead < 20_000 {
+            guard data[offset] == 0xFF, data[offset + 1] & 0xE0 == 0xE0 else {
+                offset += 1
+                continue
+            }
+
+            let bitrate = bitrates[Int(data[offset + 2] >> 4) & 0xF]
+            let sampleRate = sampleRates[Int(data[offset + 2] >> 2) & 0x3]
+            guard bitrate > 0, sampleRate > 0 else { break }
+
+            framesPerBitrate[bitrate, default: 0] += 1
+            framesRead += 1
+
+            let padding = Int(data[offset + 2] >> 1) & 0x1
+            let frameLength = 144_000 * bitrate / sampleRate + padding
+            guard frameLength > 4 else { break }
+            offset += frameLength
+        }
+
+        // A lone frame at an odd rate is the Xing/Info header the encoder writes in front of
+        // the audio, and says nothing about the rest of the file.
+        let sustained = framesPerBitrate.filter { $0.value > 2 }
+        guard !sustained.isEmpty else { return .notMP3 }
+        return sustained.count > 1 ? .variable : .constant
+    }
+
+    /// AVFoundation seeks VBR MP3s by estimated bitrate rather than an index, drifting off target (measured -0.29s at 15s, -0.81s at 4min).
+    /// A one-time lossless re-render fixes this; CBR files and Popular Edits already seek exactly and are left alone.
+    func ensureSeekableAudio() {
+        let candidates = tracks.filter {
+            $0.source == .local
+                && $0.url.pathExtension.lowercased() == "mp3"
+                && !isBundledResource($0.url)
+        }
+        guard !candidates.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+
+            for track in candidates {
+                guard Self.mp3BitrateMode(of: track.url) == .variable,
+                      let rendered = self.renderSeekableCopy(of: track)
+                else { continue }
+
+                DispatchQueue.main.async {
+                    // Dropped if the song has gone, or if something else moved it in the
+                    // meantime — the compressor writes its own render and can get there first.
+                    guard let index = self.trackIndex(for: track.id),
+                          self.tracks[index].url == track.url
+                    else { return }
+
+                    self.preserveArtworkBeforeAudioSwap(index: index)
+                    self.tracks[index].url = rendered
+                    self.saveTrack(self.tracks[index])
+                    self.recueIfLoadedAudioIsStale(index: index)
+                }
+            }
+        }
+    }
+
+    /// Stores custom artwork before the audio is swapped for a render, since renders carry no tags and it couldn't be re-read afterward.
+    private func preserveArtworkBeforeAudioSwap(index: Int) {
+        guard tracks.indices.contains(index),
+              tracks[index].artwork != nil,
+              !tracks[index].hasCustomArtwork
+        else { return }
+
+        tracks[index].hasCustomArtwork = true
+    }
+
+    private func renderSeekableCopy(of track: Track) -> URL? {
+        guard let folder = Self.compressedAudioFolderURL,
+              let sourceFile = try? AVAudioFile(forReading: track.url)
+        else { return nil }
+
+        let format = sourceFile.processingFormat
+        guard format.sampleRate > 0, format.channelCount > 0, sourceFile.length > 0 else { return nil }
+
+        let destination = folder.appendingPathComponent(
+            "\(track.songHash.replacingOccurrences(of: ":", with: "_"))-seekable.m4a"
+        )
+
+        // Reused across launches if the length matches, avoiding minutes of re-rendering; a truncated render is redone.
+        let sourceDuration = Double(sourceFile.length) / format.sampleRate
+        if let existing = try? AVAudioFile(forReading: destination) {
+            let existingDuration = Double(existing.length) / existing.processingFormat.sampleRate
+            if abs(existingDuration - sourceDuration) < 0.1 { return destination }
+        }
+        try? FileManager.default.removeItem(at: destination)
+
+        // Explicitly 16-bit; inferring from the 32-bit float reading format would bloat the file to about 9x the source instead of 3x.
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatAppleLossless,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: Int(format.channelCount),
+            AVEncoderBitDepthHintKey: 16,
+        ]
+
+        let blockSize: AVAudioFrameCount = 65536
+        guard let outputFile = try? AVAudioFile(forWriting: destination, settings: settings),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: blockSize)
+        else { return nil }
+
+        while sourceFile.framePosition < sourceFile.length {
+            let remaining = sourceFile.length - sourceFile.framePosition
+            do {
+                try sourceFile.read(into: buffer, frameCount: AVAudioFrameCount(min(Int64(blockSize), remaining)))
+                guard buffer.frameLength > 0 else { break }
+                try outputFile.write(from: buffer)
+            } catch {
+                print("Failed rendering a seekable copy of '\(track.title)': \(error.localizedDescription)")
+                try? FileManager.default.removeItem(at: destination)
+                return nil
+            }
+        }
+
+        print(String(
+            format: "Rendered a seekable copy of '%@' (%.0fs of variable-bitrate MP3)",
+            track.title, sourceDuration
+        ))
+        return destination
+    }
+
     private func renderCompressedCopy(of track: Track, loudness: Double, peak: Float) -> URL? {
         let deficit = loudnessDeficitdB(loudness: loudness, peak: peak)
         guard deficit > 1.0, peak > 0 else { return nil }
@@ -3245,9 +3672,7 @@ class PlayerController: ObservableObject {
         let channelCount = Int(format.channelCount)
         guard format.sampleRate > 0, channelCount > 0, sourceFile.length > 0 else { return nil }
 
-        // Gain first, then hold the peaks down — the order matters. Compressing before the
-        // makeup gain leaves the loudness where it started, and an envelope follower with a
-        // real attack time never sees a sample peak at all, so nothing useful happens.
+        // Order matters: gain first, then compression — compressing before makeup gain wouldn't touch the loudness or catch the peak.
         let makeupdB = min(12.0, targetLoudnessLUFS - loudness)
         let makeup = pow(10.0, makeupdB / 20.0)
         let ceiling = 0.98
@@ -3315,9 +3740,7 @@ class PlayerController: ObservableObject {
         return max(needed, -24.0)
     }
 
-    /// Correction to bring `loudness` to target, capped by the headroom `peak` leaves. Headroom
-    /// may be negative: a source already over the ceiling is pulled down, not just left
-    /// unboosted, since time-stretching overshoots past full scale.
+    /// Headroom may be negative — an already over-ceiling source gets pulled down rather than left unboosted.
     private func gainCorrection(forLoudness loudness: Double, peak: Float) -> Double {
         let needed = targetLoudnessLUFS - loudness
         let peakHeadroomdB = peak > 0 ? 20.0 * log10(Double(0.98 / peak)) : 12.0
@@ -3341,9 +3764,7 @@ class PlayerController: ObservableObject {
                 return
             }
 
-            // Gain alone can't always reach target: a song with peaks near full scale runs out
-            // of headroom first. Compress it once, here on import, then measure the render —
-            // the gain path finishes the job from a crest factor that leaves room for it.
+            // Gain alone can't always reach target — compress once at import so the gain path finishes from a crest factor with headroom to spare.
             var playbackURL = track.url
             if let compressedURL = self.renderCompressedCopy(
                 of: track,
@@ -3377,6 +3798,9 @@ class PlayerController: ObservableObject {
                 // Verify structural index integrity hasn't changed mid-thread
                 guard self.tracks.indices.contains(index), self.tracks[index].id == track.id else { return }
 
+                if playbackURL != self.tracks[index].url {
+                    self.preserveArtworkBeforeAudioSwap(index: index)
+                }
                 self.tracks[index].url = playbackURL
                 if self.bpmDetectionOnImport, self.tracks[index].manualBPM.isEmpty, let bpm = detectedBPM {
                     self.tracks[index].manualBPM = Self.formatBPM(bpm)
@@ -3388,8 +3812,9 @@ class PlayerController: ObservableObject {
 
                 // If the user happens to already be playing this track, update engine mix immediately
                 if self.currentIndex == index, let item = self.avPlayer?.currentItem {
-                    self.applyGain(neededCorrection, to: item, url: playbackURL)
+                    self.applyAudioMix(for: self.tracks[index], to: item)
                 }
+                self.recueIfLoadedAudioIsStale(index: index)
 
                 self.saveTrack(self.tracks[index])
             }
@@ -3433,6 +3858,14 @@ class PlayerController: ObservableObject {
                 guard let self else { return }
                 self.prepareTrack(index: nextPlayable, autoPlay: false, previousTrackOverride: endedTrack)
                 self.isHandlingSongEnd = false
+
+                // Raised after `prepareTrack`, which clears it — the pivot call belongs to the
+                // jam that just finished, not to the song now cued behind it.
+                if self.pivotScreenEnabled, endedTrack?.isJam == true {
+                    self.isShowingPivots = true
+                    return
+                }
+
                 // prepareTrack() clears any pending countdown, so schedule the new one after it runs.
                 self.scheduleAutoplayCountdownIfNeeded()
             }
@@ -3449,10 +3882,7 @@ class PlayerController: ObservableObject {
         }
     }
     
-    /// Cancels a pending autoplay countdown without advancing — used when the DJ presses
-    /// play/pause (or the explicit "Abort Auto-Play" control) while the timer is counting
-    /// down, so the count simply stops and the between-songs pane waits indefinitely for
-    /// a manual play, exactly like autoplay being off.
+    /// Stops the autoplay countdown without advancing, leaving the pane waiting for manual play, same as autoplay being off.
     func pauseAutoplayCountdown() {
         autoplayCountdownTask?.cancel()
         autoplayCountdownTask = nil
@@ -3462,12 +3892,13 @@ class PlayerController: ObservableObject {
         autoplayCountdownRemaining = 0
     }
 
-    /// Starts (or restarts) the auto-advance timer while the between-songs pane is showing,
-    /// if Autoplay is enabled in Advanced Settings. No-op otherwise. Ticks
-    /// `autoplayCountdownRemaining` down once a second so the UI can show a live countdown.
+    /// No-op unless Autoplay is enabled in Advanced Settings; ticks `autoplayCountdownRemaining` once a second for the UI.
     private func scheduleAutoplayCountdownIfNeeded() {
         pauseAutoplayCountdown()
         guard autoplayEnabled, isBetweenSongs else { return }
+
+        // Skips autoplay while waiting on a person (pivot pairing or jam) rather than a timer, since only the DJ can see it's happened.
+        guard !isShowingPivots, currentTrack?.isJam != true else { return }
 
         autoplayCountdownActive = true
         autoplayCountdownRemaining = autoplayDelaySeconds
@@ -3496,6 +3927,7 @@ class PlayerController: ObservableObject {
     /// The "resume playback" behavior when the DJ (or the autoplay timer) advances out of the
     /// between-songs pane straight into the next prepared track.
     private func beginNextTrackFromBetweenSongs() {
+        stopIntro()
         autoplayCountdownTask?.cancel()
         autoplayCountdownTask = nil
         isBetweenSongs = false
@@ -3531,10 +3963,16 @@ class PlayerController: ObservableObject {
     }
 
     func togglePlayPause() {
+        // Advancing past the pivot call announces the next song; the press after that starts
+        // it. Autoplay is deliberately not counting down while it's up.
+        if isShowingPivots {
+            isShowingPivots = false
+            scheduleAutoplayCountdownIfNeeded()
+            return
+        }
+
         if isBetweenSongs {
-            // Nothing is actually playing while between songs, so this always means
-            // "play now" in one click — aborting the countdown without playing is a
-            // separate, explicit action (the "Abort Auto-Play" control).
+            // Nothing is playing between songs, so this always means "play now"; aborting is the separate "Abort Auto-Play" action.
             beginNextTrackFromBetweenSongs()
             return
         }
@@ -3572,18 +4010,18 @@ class PlayerController: ObservableObject {
             avPlayer?.pause()
             isPlaying = false
         } else {
+            let parked = avPlayer?.currentTime().seconds ?? 0
             avPlayer?.play()
             if let speed = currentTrack?.speedMultiplier {
                 avPlayer?.rate = Float(speed) // Maintain tempo changes on resume
             }
             isPlaying = true
+            reportPlaybackPosition(requested: parked, label: "transport resume")
         }
     }
     
     func next() {
-        // While between songs, `currentIndex` already points at the staged next track —
-        // advance should just start playing it (same as pressing play), not skip past it
-        // to whatever comes after.
+        // While between songs, currentIndex already points at the staged next track, so advance just starts playing it rather than skipping ahead.
         if isBetweenSongs {
             beginNextTrackFromBetweenSongs()
             return
@@ -3630,6 +4068,82 @@ class PlayerController: ObservableObject {
         if isPlaying {
             avPlayer?.rate = Float(track.speedMultiplier)
         }
+
+        // Trimming or fading the song that's already loaded has to reach the mix that's
+        // already playing, or the change wouldn't be heard until the next time it's cued.
+        if let item = avPlayer?.currentItem {
+            applyAudioMix(for: track, to: item)
+        }
+    }
+
+    /// Diagnostic: logs where playback actually landed vs. where it was asked to, to catch a dropped seek without a debugger.
+    func reportPlaybackPosition(requested: TimeInterval, label: String) {
+        let trackID = currentTrack?.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self, let track = self.currentTrack, track.id == trackID,
+                  let position = self.avPlayer?.currentTime().seconds, position.isFinite
+            else { return }
+
+            print(String(
+                format: "[%@] '%@': asked for %.3fs, playing at %.3fs (trim %.3f–%.3f, rate %.2f)",
+                label, track.title, requested, position,
+                track.startTime, track.resolvedEndTime, track.speedMultiplier
+            ))
+        }
+    }
+
+    /// True only if the loaded audio matches the track's current file — the compressor render at import can repoint a track mid-load.
+    func hasLoadedAudio(forTrackID id: UUID) -> Bool {
+        guard let track = currentTrack, track.id == id,
+              let loaded = avPlayer?.currentItem?.asset as? AVURLAsset
+        else { return false }
+
+        return loaded.url == track.url
+    }
+
+    /// Plays only what's already loaded — unlike `togglePlayPause`, which falls back to the first playable song when nothing is loaded.
+    func resumeLoadedTrack() {
+        guard let avPlayer, avPlayer.currentItem != nil, let track = currentTrack else { return }
+
+        isBetweenSongs = false
+        avPlayer.play()
+        avPlayer.rate = Float(track.speedMultiplier)
+        isPlaying = true
+    }
+
+    /// Only re-cues while paused at the start — swapping mid-playback would cut the floor off, and rewinding a paused DJ would lose their place.
+    private func recueIfLoadedAudioIsStale(index: Int) {
+        guard tracks.indices.contains(index), currentIndex == index, !isPlaying,
+              let avPlayer, avPlayer.currentItem != nil,
+              !hasLoadedAudio(forTrackID: tracks[index].id)
+        else { return }
+
+        let position = avPlayer.currentTime().seconds
+        guard position.isFinite, abs(position - tracks[index].startTime) < 0.05 else { return }
+
+        prepareTrack(index: index, autoPlay: false)
+    }
+
+    /// AVPlayer holds an absolute position, not a bookmark, so a cued song stays at its old start point until re-cued here.
+    /// A song already mid-playback is left alone unless the new region no longer contains it.
+    func recueForTrimChange(previousStartTime: TimeInterval) {
+        guard let avPlayer, let track = currentTrack, track.source == .local else { return }
+
+        let position = avPlayer.currentTime().seconds
+        guard position.isFinite else { return }
+
+        // Parked on the old start is what "cued and waiting" looks like, and is the case that
+        // has to follow the edit. Anywhere else is a position the DJ chose for themselves.
+        let wasCuedAtStart = abs(position - previousStartTime) < 0.05
+        let isOutsideNewRegion = position < track.startTime - 0.01 || position > track.playbackStopTime
+        guard wasCuedAtStart || isOutsideNewRegion else { return }
+
+        avPlayer.seek(
+            to: CMTime(seconds: track.startTime, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+        currentTime = 0
     }
 
     func reorderTrack(from draggedTrackID: UUID, before targetTrackID: UUID) -> Bool {
@@ -3672,8 +4186,19 @@ class PlayerController: ObservableObject {
         } else if let cur = currentIndex, cur > index {
             currentIndex = cur - 1
         }
-        
-        tracks.remove(at: index)
+
+        let removed = tracks.remove(at: index)
+        // Removing a song also discards its library settings (trims, tempo, tags), so re-adding it starts clean rather than restoring them.
+        forgetLibraryEntry(songHash: removed.songHash)
+    }
+
+    private func forgetLibraryEntry(songHash: String) {
+        var library = loadLibrary()
+        let remaining = library.tracks.filter { $0.songHash != songHash }
+        guard remaining.count != library.tracks.count else { return }
+
+        library.tracks = remaining
+        writeLibrary(library)
     }
 
     private func applyPersistedSettings(_ persistedTrack: PersistedTrack, to track: inout Track) {
@@ -3686,6 +4211,8 @@ class PlayerController: ObservableObject {
         track.endTime = persistedTrack.endTime
         track.tempoPercentage = persistedTrack.tempoPercentage
         track.manualBPM = persistedTrack.manualBPM ?? ""
+        track.fadeInDuration = persistedTrack.fadeInDuration ?? 0
+        track.fadeOutDuration = persistedTrack.fadeOutDuration ?? 0
         track.measuredLoudness = persistedTrack.measuredLoudness
         track.gainCorrectiondB = persistedTrack.gainCorrectiondB
         track.loudnessAnalysisVersion = persistedTrack.loudnessAnalysisVersion ?? 0
@@ -3855,6 +4382,68 @@ class PlayerController: ObservableObject {
         }
     }
     
+    // MARK: - Spotify timestamp preview
+
+    /// Spotify audio never reaches the app, so this is the only way to check whether a typed timestamp lands where it should.
+    func previewSpotifyEdge(
+        _ edge: SpotifyPreviewEdge,
+        of track: Track,
+        start: TimeInterval,
+        end: TimeInterval
+    ) {
+        guard track.source == .spotify, let uri = track.spotifyURI else { return }
+
+        let wasPreviewing = spotifyPreviewEdge
+        stopSpotifyPreview()
+        // Pressing the button that's already playing stops it, rather than restarting.
+        guard wasPreviewing != edge else { return }
+
+        // The set and the preview share one Spotify device, so auditioning over a running
+        // song would take the music off the floor mid-phrase.
+        if isPlaying { togglePlayPause() }
+
+        let length = Self.spotifyPreviewLength
+        let position = edge == .start ? start : max(start, end - length)
+
+        spotifyPreviewEdge = edge
+        spotifyPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            let clientID = UserDefaults.standard.string(forKey: "spotifyClientID")
+
+            do {
+                try await self.spotifyService.startPlayback(
+                    uri: uri,
+                    clientID: clientID,
+                    position: position
+                )
+            } catch {
+                await MainActor.run {
+                    self.spotifyStatusMessage = error.localizedDescription
+                    self.spotifyPreviewEdge = nil
+                }
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: UInt64(length * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            try? await self.spotifyService.pausePlayback(clientID: clientID)
+            await MainActor.run { self.spotifyPreviewEdge = nil }
+        }
+    }
+
+    func stopSpotifyPreview() {
+        spotifyPreviewTask?.cancel()
+        spotifyPreviewTask = nil
+        guard spotifyPreviewEdge != nil else { return }
+
+        spotifyPreviewEdge = nil
+        Task { [weak self] in
+            let clientID = UserDefaults.standard.string(forKey: "spotifyClientID")
+            try? await self?.spotifyService.pausePlayback(clientID: clientID)
+        }
+    }
+
     private func pauseSpotifyPlayback() {
         Task { [weak self] in
             guard let self else { return }
@@ -3942,9 +4531,7 @@ class PlayerController: ObservableObject {
         }
     }
     
-    /// Brings stale gain tags up to the current analysis. A stored `measuredLoudness` is still
-    /// valid — only the derived gain went stale, and re-deriving is arithmetic, so most of a
-    /// migration costs no decode. Bump `loudnessAnalysisVersion` to force a pass.
+    /// Only the derived gain is stale (loudness stays valid), so migrating is cheap arithmetic with no re-decode; bump loudnessAnalysisVersion to force a pass.
     func relevelLibraryGain() {
         // A pass works from a snapshot, so a project opened while one is running would be
         // missed. Re-run at the end instead of dropping the request.
@@ -3956,6 +4543,10 @@ class PlayerController: ObservableObject {
         // Header parse only, no decode. Runs whether or not anything needs re-measuring, so
         // the first play of every song already has its gain attached.
         warmAudioTrackIDCache()
+
+        // Same reason it lives here: it has to run for songs that were imported long ago and
+        // need no re-measuring, not only for ones arriving now.
+        ensureSeekableAudio()
 
         let stale = tracks.filter {
             $0.source == .local && $0.loudnessAnalysisVersion < Self.loudnessAnalysisVersion
@@ -3979,7 +4570,7 @@ class PlayerController: ObservableObject {
             saveTrack(tracks[index])
 
             if currentIndex == index, let item = avPlayer?.currentItem {
-                applyGain(correction, to: item, url: track.url)
+                applyAudioMix(for: tracks[index], to: item)
             }
         }
 
@@ -4022,7 +4613,7 @@ class PlayerController: ObservableObject {
                     self.saveTrack(self.tracks[index])
 
                     if self.currentIndex == index, let item = self.avPlayer?.currentItem {
-                        self.applyGain(neededCorrection, to: item, url: track.url)
+                        self.applyAudioMix(for: self.tracks[index], to: item)
                     }
                 }
             }
@@ -4096,9 +4687,7 @@ class PlayerController: ObservableObject {
             return
         }
 
-        // If the DJ didn't type a project name before picking the workbook, default to
-        // the file's own name rather than the generic placeholder — it's still editable
-        // in the review pane itself before Confirm.
+        // Defaults to the workbook file's own name when the DJ didn't type a project name; still editable before Confirm.
         let trimmedName = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty || trimmedName == "Dance Player Project" {
             projectName = sanitizeProjectName(url.deletingPathExtension().lastPathComponent)
@@ -4167,6 +4756,154 @@ class PlayerController: ObservableObject {
         }
     }
 
+    // MARK: - Dance intros
+
+    /// Spoken intros that ship with the app for the two dances that have one. Announced from the
+    /// booth over the next-song screen, before the song itself starts.
+    private static let danceIntros: [(style: String, resourceName: String, fileExtension: String)] = [
+        (style: "Bohemian National Polka", resourceName: "BNP Intro", fileExtension: "m4a"),
+        (style: "Romany Polka", resourceName: "Romany Polka Intro", fileExtension: "mp3"),
+    ]
+
+    /// The intro for a song, if it has one. Matched on dance style rather than on the recording,
+    /// so a DJ's own copy of the polka gets the intro just as the shipped edit does.
+    static func introURL(for track: Track) -> URL? {
+        for intro in danceIntros where track.danceStyles.contains(intro.style) {
+            if let url = Bundle.main.url(
+                forResource: intro.resourceName,
+                withExtension: intro.fileExtension,
+                subdirectory: "audio files"
+            ) ?? Bundle.main.url(forResource: intro.resourceName, withExtension: intro.fileExtension) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// Played on its own player, deliberately outside the queue: the intro is not a song in the
+    /// set, it doesn't advance anything, and it mustn't disturb what the transport has cued.
+    func playIntro(for track: Track) {
+        guard let url = Self.introURL(for: track) else { return }
+
+        if isPlayingIntro {
+            stopIntro()
+            return
+        }
+
+        // An intro is being talked over otherwise: whatever the countdown was about to do, it
+        // would do it during the announcement.
+        pauseAutoplayCountdown()
+
+        let item = AVPlayerItem(url: url)
+        introPlayer = AVPlayer(playerItem: item)
+
+        // Backstop for when the audible-content scan hasn't landed yet, or the file turns out
+        // to have no meaningful silence tail at all.
+        introFinishedObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.stopIntro()
+        }
+
+        introPlayer?.play()
+        isPlayingIntro = true
+        scheduleIntroEarlyStop(url: url, item: item)
+    }
+
+    /// Recordings have a silent tail after the speech ends; stopping early avoids the button looking stuck for a few seconds.
+    private func scheduleIntroEarlyStop(url: URL, item: AVPlayerItem) {
+        if let cached = introAudibleDurationCache[url] {
+            addIntroBoundary(at: cached, item: item)
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let duration = Self.scanForAudibleDuration(of: url) else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.introAudibleDurationCache[url] = duration
+                // The DJ may have pressed Stop, or started a different intro, while this ran.
+                guard self.introPlayer?.currentItem === item else { return }
+                self.addIntroBoundary(at: duration, item: item)
+            }
+        }
+    }
+
+    /// A boundary observer rather than a wall-clock delay: it fires against the player's actual
+    /// position, so it can't drift if playback stalls for buffering.
+    private func addIntroBoundary(at duration: TimeInterval, item: AVPlayerItem) {
+        Task { @MainActor [weak self] in
+            guard let self, let itemDuration = try? await item.asset.load(.duration).seconds,
+                  itemDuration.isFinite,
+                  // Close enough to the file's own end that the natural end-of-file observer
+                  // fires around the same moment anyway — nothing meaningful was trimmed.
+                  duration < itemDuration - 0.2,
+                  self.introPlayer?.currentItem === item
+            else { return }
+
+            let boundaryTime = NSValue(time: CMTime(seconds: duration, preferredTimescale: 600))
+            self.introBoundaryObserver = self.introPlayer?.addBoundaryTimeObserver(
+                forTimes: [boundaryTime],
+                queue: .main
+            ) { [weak self] in
+                self?.stopIntro()
+            }
+        }
+    }
+
+    func stopIntro() {
+        if let introFinishedObserver {
+            NotificationCenter.default.removeObserver(introFinishedObserver)
+        }
+        introFinishedObserver = nil
+        if let introBoundaryObserver {
+            introPlayer?.removeTimeObserver(introBoundaryObserver)
+        }
+        introBoundaryObserver = nil
+        introPlayer?.pause()
+        introPlayer = nil
+        isPlayingIntro = false
+    }
+
+    func importCursedSong(_ song: CursedSong) {
+        guard let url = song.bundledURL else {
+            presentError(
+                title: "\(song.displayName) isn't installed",
+                message: "Its audio file hasn't been added to the app yet. Drop "
+                    + "\"\(song.resourceName).\(song.fileExtension)\" into the app's "
+                    + "\"audio files\" folder and rebuild."
+            )
+            return
+        }
+
+        processAudioURL(url, presetDanceStyles: song.danceStyles, runReplayGainOnAdd: true)
+
+        guard !song.customStyle.isEmpty || song.knownBPM != nil else { return }
+
+        // The track doesn't exist yet at this point, so this waits for the import to land —
+        // the same approach `importPopularEdit` uses for its published tempos.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let index = self.tracks.firstIndex(where: {
+                    $0.url.standardizedFileURL == url.standardizedFileURL
+                }) else { continue }
+
+                if !song.customStyle.isEmpty {
+                    self.tracks[index].customStyle = song.customStyle
+                }
+                if let known = song.knownBPM, self.tracks[index].manualBPM.isEmpty {
+                    self.tracks[index].manualBPM = String(known)
+                }
+                self.saveTrack(self.tracks[index])
+                return
+            }
+        }
+    }
+
     private func popularEditResourceURL(for edit: PopularEdit) -> URL? {
         Bundle.main.url(forResource: edit.resourceName, withExtension: edit.fileExtension, subdirectory: "audio files")
             ?? Bundle.main.url(forResource: edit.resourceName, withExtension: edit.fileExtension)
@@ -4188,9 +4925,7 @@ class PlayerController: ObservableObject {
     }
 
     // MARK: - Dancebreak DJ Workbook Import
-    // These `async` variants are awaited directly (rather than fire-and-forget like
-    // processAudioURL/importPopularEdit above) so the workbook importer can go song by
-    // song, one file picker / one Spotify search at a time.
+    // These async variants are awaited directly, unlike the fire-and-forget import above, so the workbook importer can proceed one song at a time.
 
     func importWorkbookPopularEdit(
         _ edit: PopularEdit,
@@ -4204,9 +4939,7 @@ class PlayerController: ObservableObject {
             print("Popular edit resource not found: \(edit.resourceName).\(edit.fileExtension)")
             return
         }
-        // The bundled file's own embedded tags (or a stale prior-import cache entry for
-        // the same hash) shouldn't override what the DJ's workbook actually says — the
-        // audio comes from the bundle, but title/artist/style/BPM come from the sheet.
+        // The workbook's title/style/BPM take priority over the bundled file's own tags or a stale cache entry.
         let hash = hashAudioFile(url)
         await importAudioURL(url, presetDanceStyles: danceStyles, runReplayGainOnAdd: true, shouldShowImportActivity: true)
 
@@ -4229,16 +4962,16 @@ class PlayerController: ObservableObject {
         customStyle: String,
         manualBPM: String
     ) async {
-        // Same rationale as importWorkbookPopularEdit above: the picked file's own
-        // embedded tags (or a stale prior-import cache entry) shouldn't leak through —
-        // the workbook row is the source of truth for everything except the audio itself.
+        // The file's own tags usually give a better title/artist than a hand-typed workbook; styles/BPM still come from the sheet.
+        // Read separately from import, since importAudioURL substitutes defaults that would no longer look blank here.
+        let embedded = await embeddedTitleAndArtist(for: url)
         let hash = hashAudioFile(url)
         await importAudioURL(url, presetDanceStyles: danceStyles, runReplayGainOnAdd: false, shouldShowImportActivity: true)
 
         await MainActor.run {
             guard let idx = self.tracks.firstIndex(where: { $0.songHash == hash }) else { return }
-            self.tracks[idx].title = title
-            self.tracks[idx].artist = artist
+            self.tracks[idx].title = embedded.title ?? title
+            self.tracks[idx].artist = embedded.artist ?? artist
             self.tracks[idx].danceStyles = danceStyles
             self.tracks[idx].customStyle = customStyle
             self.tracks[idx].manualBPM = manualBPM
@@ -4246,13 +4979,37 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Searches Spotify for `title artist`, imports the top result if found, and returns
-    /// whether a match was imported. Requires the DJ to have entered a Spotify Client ID
-    /// and completed the browser sign-in/approval — `SpotifyService.connect` triggers that.
-    /// Searches Spotify for `title artist` and returns the candidates for the DJ to
-    /// choose from (mirrors the manual "Track from Spotify" search) rather than picking
-    /// one automatically. Requires the DJ to have entered a Spotify Client ID and
-    /// completed the browser sign-in/approval — `SpotifyService.connect` triggers that.
+    /// Title/artist as the file actually declares them, or nil — unlike `importAudioURL`, which substitutes defaults when tags are missing.
+    private func embeddedTitleAndArtist(for url: URL) async -> (title: String?, artist: String?) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        guard let items = try? await AVURLAsset(url: url).load(.commonMetadata) else {
+            return (nil, nil)
+        }
+
+        var title: String?
+        var artist: String?
+
+        for item in items {
+            guard let key = item.commonKey,
+                  let value = try? await item.load(.stringValue) else { continue }
+
+            // A tag present but blank is no more use than a missing one.
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            switch key {
+            case .commonKeyTitle: title = trimmed
+            case .commonKeyArtist: artist = trimmed
+            default: break
+            }
+        }
+
+        return (title, artist)
+    }
+
+    /// Searches Spotify for `title artist` and returns candidates for the DJ to choose from; requires a Spotify Client ID and completed sign-in.
     func searchWorkbookSpotifyTracks(title: String, artist: String, clientID: String) async -> [Track] {
         do {
             try await spotifyService.connect(clientID: clientID)
@@ -4267,11 +5024,16 @@ class PlayerController: ObservableObject {
     /// dance styles / custom style / BPM overrides.
     func importWorkbookSpotifyMatch(
         _ track: Track,
+        title: String,
+        artist: String,
         danceStyles: Set<String>,
         customStyle: String,
         manualBPM: String
     ) async {
         var matched = track
+        // Spotify's title/artist win over the workbook's; the fallback here is rarely needed since Spotify always returns both.
+        matched.title = Self.firstNonEmpty(track.title, title)
+        matched.artist = Self.firstNonEmpty(track.artist, artist)
         matched.danceStyles = danceStyles
         matched.customStyle = customStyle
         matched.manualBPM = manualBPM
@@ -4279,6 +5041,11 @@ class PlayerController: ObservableObject {
         await MainActor.run {
             self.appendSpotifyTracks([matched])
         }
+    }
+
+    private static func firstNonEmpty(_ preferred: String, _ fallback: String) -> String {
+        let trimmed = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
     }
 
     /// Resolves a pasted Spotify track URL/URI directly instead of searching by text —
@@ -4473,6 +5240,43 @@ class PlayerController: ObservableObject {
     }
 
     // MARK: - Core Audio Trimming Engine
+    /// Same -70dB silence gate as `trimTrailingSilence`, extracted so dance intros can reuse it; runs off the main actor.
+    nonisolated private static func scanForAudibleDuration(of url: URL) -> TimeInterval? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let format = file.processingFormat
+        let frameCount = UInt32(file.length)
+        guard frameCount > 0 else { return nil }
+
+        let bufferSize = min(frameCount, 44100 * 2)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: bufferSize) else { return nil }
+
+        var currentFrameOffset = Int64(frameCount)
+        var silenceEndFrame = Int64(frameCount)
+        let silenceThreshold: Float = 0.000316 // Linear amplitude ~ -70dB
+
+        while currentFrameOffset > 0 {
+            let readLength = min(Int64(bufferSize), currentFrameOffset)
+            currentFrameOffset -= readLength
+            file.framePosition = currentFrameOffset
+
+            guard (try? file.read(into: buffer, frameCount: UInt32(readLength))) != nil,
+                  let channels = buffer.floatChannelData
+            else { break }
+
+            var foundAudio = false
+            for frame in (0..<Int(readLength)).reversed() {
+                if abs(channels[0][frame]) > silenceThreshold {
+                    silenceEndFrame = currentFrameOffset + Int64(frame)
+                    foundAudio = true
+                    break
+                }
+            }
+            if foundAudio { break }
+        }
+
+        return Double(silenceEndFrame) / format.sampleRate
+    }
+
     private func trimTrailingSilence(forTrackAt index: Int, releaseSecurityScope scopedURL: URL? = nil) {
         guard tracks.indices.contains(index) else {
             scopedURL?.stopAccessingSecurityScopedResource()
@@ -4636,6 +5440,20 @@ class PlayerController: ObservableObject {
         DisplayWindowObserver { [weak self] in self?.isCoverArtWindowOpen = false }
     }()
 
+    // MARK: - Timing editor
+
+    /// Presented as a sheet over the queue rather than a separate window; local files only, since Spotify audio never reaches the app.
+    func openTimingEditor(for trackID: UUID) {
+        guard let track = tracks.first(where: { $0.id == trackID }), track.source == .local else { return }
+        timingEditorTrackID = trackID
+    }
+
+    func closeTimingEditor() {
+        timingEditorTrackID = nil
+    }
+
+    var isTimingEditorPresented: Bool { timingEditorTrackID != nil }
+
     // MARK: - Library Persistence
 
     private var libraryJSONURL: URL {
@@ -4682,6 +5500,8 @@ class PlayerController: ObservableObject {
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
                 manualBPM: track.manualBPM,
+                fadeInDuration: track.fadeInDuration,
+                fadeOutDuration: track.fadeOutDuration,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 loudnessAnalysisVersion: track.loudnessAnalysisVersion,
@@ -4705,7 +5525,9 @@ class PlayerController: ObservableObject {
                     endTime: track.endTime,
                     tempoPercentage: track.tempoPercentage,
                     manualBPM: track.manualBPM,
-                    measuredLoudness: track.measuredLoudness,
+                    fadeInDuration: track.fadeInDuration,
+                    fadeOutDuration: track.fadeOutDuration,
+                        measuredLoudness: track.measuredLoudness,
                     gainCorrectiondB: track.gainCorrectiondB,
                     loudnessAnalysisVersion: track.loudnessAnalysisVersion,
                     hasCustomArtwork: track.hasCustomArtwork,
@@ -4805,9 +5627,7 @@ class PlayerController: ObservableObject {
         pauseAutoplayCountdown()
         persistTracksToLibrary([])
 
-        // Eagerly create the project folder structure so that
-        // materializeLocalTrackAssetsIfNeeded works the moment the first
-        // track is added — before the first autosave fires.
+        // Created eagerly so materializeLocalTrackAssetsIfNeeded works for the first track add, before the first autosave fires.
         if let root = projectRootFolderURL {
             try? FileManager.default.createDirectory(
                 at: root.appendingPathComponent("files", isDirectory: true),
@@ -4870,9 +5690,7 @@ class PlayerController: ObservableObject {
         }
     }
 
-    /// Starts a fresh project shell (same as "Create New Project") and immediately opens
-    /// the Dancebreak DJ Workbook file picker — used from the welcome screen so importing
-    /// a workbook lands in the review pane / main window instead of falling back here.
+    /// Starts a fresh project shell, then opens the Workbook import picker.
     func beginWorkbookImportFlow(named name: String, autosaveRequested: Bool) {
         let sanitizedName = sanitizeProjectName(name)
 
@@ -5514,6 +6332,8 @@ class PlayerController: ObservableObject {
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
                 manualBPM: track.manualBPM,
+                fadeInDuration: track.fadeInDuration,
+                fadeOutDuration: track.fadeOutDuration,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 loudnessAnalysisVersion: track.loudnessAnalysisVersion,
@@ -5572,6 +6392,8 @@ class PlayerController: ObservableObject {
                 endTime: track.endTime,
                 tempoPercentage: track.tempoPercentage,
                 manualBPM: track.manualBPM,
+                fadeInDuration: track.fadeInDuration,
+                fadeOutDuration: track.fadeOutDuration,
                 measuredLoudness: track.measuredLoudness,
                 gainCorrectiondB: track.gainCorrectiondB,
                 loudnessAnalysisVersion: track.loudnessAnalysisVersion,
@@ -5714,12 +6536,20 @@ extension Color {
 }
 
 struct PointingHandCursorModifier: ViewModifier {
+    /// A greyed-out control isn't offering anything, so it shouldn't claim to be clickable.
+    @Environment(\.isEnabled) private var isEnabled
+    /// `push` and `pop` have to stay balanced. Popping on every exit assumes each exit had a
+    /// matching entry, which stops being true as soon as the push is conditional.
+    @State private var isHoldingCursor = false
+
     func body(content: Content) -> some View {
         content.onHover { hovering in
-            if hovering {
+            if hovering, isEnabled, !isHoldingCursor {
                 NSCursor.pointingHand.push()
-            } else {
+                isHoldingCursor = true
+            } else if !hovering, isHoldingCursor {
                 NSCursor.pop()
+                isHoldingCursor = false
             }
         }
     }
@@ -5737,9 +6567,7 @@ struct ResizeCursorModifier: ViewModifier {
     }
 }
 
-/// Open hand over a draggable row, closed hand while it's being dragged — the usual macOS
-/// reorder affordance. Uses `set()` rather than `push()`/`pop()` so a drag that ends outside
-/// the row can't leave the cursor stack unbalanced.
+/// Uses `set()` rather than push()/pop() so a drag that ends outside the row can't leave the cursor stack unbalanced.
 struct GrabCursorModifier: ViewModifier {
     let isDragging: Bool
     @State private var isHovering = false
