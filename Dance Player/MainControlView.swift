@@ -539,6 +539,7 @@ struct NewProjectDialog: View {
             // so checking this box didn't bring back the Spotify/YouTube importer tours once
             // they'd already been seen once.
             TutorialManager.shared.scheduleStart(.timingEditor)
+            TutorialManager.shared.scheduleStart(.timingEditorSpotify)
             TutorialManager.shared.scheduleStart(.spotifyImporter)
             TutorialManager.shared.scheduleStart(.songImporter)
         } else {

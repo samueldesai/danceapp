@@ -115,6 +115,7 @@ enum TutorialContext: String, CaseIterable {
     case mainControl
     case workbookImporter
     case timingEditor
+    case timingEditorSpotify
     case spotifyImporter
     case songImporter
 
@@ -136,6 +137,7 @@ enum TutorialAction: Equatable {
     case editorTempoChanged
     case openedPopularEditsMenu
     case selectedPopularEdit
+    case editorPreviewedSpotifyEdge
 }
 
 struct TutorialStep {
@@ -170,6 +172,7 @@ private enum TutorialLibrary {
         case .mainControl: return mainControl
         case .workbookImporter: return workbookImporter
         case .timingEditor: return timingEditor
+        case .timingEditorSpotify: return timingEditorSpotify
         case .spotifyImporter: return spotifyImporter
         case .songImporter: return songImporter
         }
@@ -354,6 +357,39 @@ private enum TutorialLibrary {
             anchorID: "editor.footer",
             title: "Export & Done",
             message: "Export a standalone file if you'd like a copy, or hit Done to apply your changes back to the queue."
+        )
+    ]
+
+
+    static let timingEditorSpotify: [TutorialStep] = [
+        TutorialStep(
+            anchorID: nil,
+            title: "Spotify Pane Editor",
+            message: "This is the tutorial for the Spotify Metadata Edutor"
+        ),
+        TutorialStep(
+            anchorID: "editor.metadata",
+            title: "Title, Artist & Art",
+            message: "Edit the track's title, artist and cover art here. Try it: change the title or artist to anything.",
+            requiredAction: .editorMetadataEdited,
+            lockedMessage: "Change the title or artist field first."
+        ),
+        TutorialStep(
+            anchorID: "editor.spotifyTimestamps",
+            title: "Typed Timestamps",
+            message: "You can change the start and end times of the track and then preview it! Try it: click the preview button next to Start Timestamp to hear it.",
+            requiredAction: .editorPreviewedSpotifyEdge,
+            lockedMessage: "Click one of the preview buttons first."
+        ),
+        TutorialStep(
+            anchorID: "editor.spotifyDownload",
+            title: "Download File",
+            message: "Download this song's audio locally to unlock the full waveform editor — trim, fades, tempo, blading and export."
+        ),
+        TutorialStep(
+            anchorID: "editor.footer",
+            title: "Undo, Reset & Done",
+            message: "Undo All and Reset put your changes back to how the track opened. Done applies whatever you kept back to the queue."
         )
     ]
 

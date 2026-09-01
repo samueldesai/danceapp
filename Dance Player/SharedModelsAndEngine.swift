@@ -1099,6 +1099,19 @@ enum SpotifyAudioDownloadError: LocalizedError {
 
 /// Spotify never gives raw audio, so this shells out to a bundled YouTube search/download tool (from boltz-main, minus its Spotify lookup) and keeps whatever AVFoundation-playable format YouTube serves, avoiding a transcode/ffmpeg dependency.
 enum SpotifyAudioDownloader {
+
+    private static var hasClearedQuarantine = false
+
+    private static func clearQuarantineIfNeeded(toolFolderURL: URL) {
+        guard !hasClearedQuarantine else { return }
+        hasClearedQuarantine = true
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+        process.arguments = ["-cr", toolFolderURL.path]
+        try? process.run()
+        process.waitUntilExit()
+    }
+
     static func download(artist: String, title: String, baseName: String, expectedDurationSeconds: TimeInterval? = nil) async throws -> URL {
         // PyInstaller's onedir output avoids the sandbox-blocked self-extraction of onefile mode, but its executable needs its sibling `_internal` folder copied alongside it.
         let toolURL = Bundle.main.resourceURL?
@@ -1107,6 +1120,7 @@ enum SpotifyAudioDownloader {
         guard let toolURL, FileManager.default.fileExists(atPath: toolURL.path) else {
             throw SpotifyAudioDownloadError.toolNotFound
         }
+        clearQuarantineIfNeeded(toolFolderURL: toolURL.deletingLastPathComponent())
 
         let outputDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("SpotifyDownloads", isDirectory: true)
 
@@ -6104,7 +6118,10 @@ class PlayerController: ObservableObject {
     /// Which tour Control-Shift-T should run, inferred from whichever tour-able surface is actually on screen.
     /// Nil on the welcome screen, before any project is loaded -- the main control tour's anchors (queue, library, transport) don't exist there yet, so starting it would leave the DJ stuck looking at a dimmed screen with nothing to interact with.
     var currentTutorialContext: TutorialContext? {
-        if isTimingEditorPresented { return .timingEditor }
+        if let timingEditorTrackID {
+            let isSpotifyTrack = tracks.first(where: { $0.id == timingEditorTrackID })?.source == .spotify
+            return isSpotifyTrack ? .timingEditorSpotify : .timingEditor
+        }
         if isSpotifyImportSheetPresented { return .spotifyImporter }
         if isYouTubeDownloadSheetPresented { return .songImporter }
         if pendingWorkbookImport != nil { return .workbookImporter }

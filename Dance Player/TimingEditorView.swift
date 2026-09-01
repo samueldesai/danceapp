@@ -1066,7 +1066,9 @@ struct TimingEditorView: View {
                     scrollToCurrentTutorialAnchor(using: scrollProxy)
                 }
                 .onChange(of: tutorialManager.activeContext) { _, newValue in
-                    if newValue == .timingEditor { scrollToCurrentTutorialAnchor(using: scrollProxy) }
+                    if newValue == .timingEditor || newValue == .timingEditorSpotify {
+                        scrollToCurrentTutorialAnchor(using: scrollProxy)
+                    }
                 }
             }
 
@@ -1077,7 +1079,7 @@ struct TimingEditorView: View {
         .frame(minWidth: 900, idealWidth: 1080, minHeight: 660, idealHeight: 820)
         .background(Color(hex: "#0e0e10"))
         .foregroundColor(.white)
-        .tutorialOverlayHost(for: [.timingEditor])
+        .tutorialOverlayHost(for: [.timingEditor, .timingEditorSpotify])
         .background(WindowAccessor { window in
             // AppKit auto-focuses the start-time field on open, which silently ate spacebar/zoom shortcuts until dismissed.
             if hostWindow == nil { window?.makeFirstResponder(nil) }
@@ -1085,9 +1087,17 @@ struct TimingEditorView: View {
         })
         // Tour steps edit the real track (not a sandbox copy), so leaving this editor for any reason reverts what they did.
         .onChange(of: tutorialManager.activeContext) { oldValue, newValue in
-            if oldValue == .timingEditor, newValue != .timingEditor {
+            let wasTouring = oldValue == .timingEditor || oldValue == .timingEditorSpotify
+            let isStillTouring = newValue == .timingEditor || newValue == .timingEditorSpotify
+            if wasTouring, !isStillTouring {
                 undoAllChanges()
             }
+        }
+        // Downloading a Spotify track's audio while this editor is already open flips
+        // `isSpotifyTrack` false mid-session -- `onAppear` already ran back when it was still
+        // true (skipping the load), so nothing pulled in a waveform until this fires.
+        .onChange(of: isSpotifyTrack) { wasSpotify, isSpotify in
+            if wasSpotify, !isSpotify { loadWaveform() }
         }
         .onAppear {
             hydrate()
@@ -1095,7 +1105,9 @@ struct TimingEditorView: View {
             installKeyMonitor()
             installScrollMonitor()
             installTempoKeyMonitor()
-            DispatchQueue.main.async { TutorialManager.shared.startIfNeverSeen(.timingEditor) }
+            DispatchQueue.main.async {
+                TutorialManager.shared.startIfNeverSeen(isSpotifyTrack ? .timingEditorSpotify : .timingEditor)
+            }
         }
         // The Start/End fields are in played seconds, so they must track the tempo live as it's dragged, not just on release.
         .onChange(of: tempoPercentage) { _, _ in
@@ -1107,7 +1119,7 @@ struct TimingEditorView: View {
             removeMonitors()
             removeTempoKeyMonitor()
             // Closing mid-tour still needs to discard the tour's edits, since `finish()` alone won't trigger the onChange above.
-            if tutorialManager.activeContext == .timingEditor {
+            if tutorialManager.activeContext == .timingEditor || tutorialManager.activeContext == .timingEditorSpotify {
                 undoAllChanges()
                 TutorialManager.shared.finish()
             }
@@ -1366,20 +1378,26 @@ struct TimingEditorView: View {
                 .foregroundColor(Color(hex: "#a3a3ac"))
                 .fixedSize(horizontal: false, vertical: true)
 
-            spotifyTimestampField(
-                title: "START TIMESTAMP",
-                minutes: $spotifyStartMinString,
-                seconds: $spotifyStartSecString,
-                edge: .start
-            )
-            spotifyTimestampField(
-                title: "END TIMESTAMP",
-                minutes: $spotifyEndMinString,
-                seconds: $spotifyEndSecString,
-                edge: .end
-            )
+            VStack(alignment: .leading, spacing: 16) {
+                spotifyTimestampField(
+                    title: "START TIMESTAMP",
+                    minutes: $spotifyStartMinString,
+                    seconds: $spotifyStartSecString,
+                    edge: .start
+                )
+                spotifyTimestampField(
+                    title: "END TIMESTAMP",
+                    minutes: $spotifyEndMinString,
+                    seconds: $spotifyEndSecString,
+                    edge: .end
+                )
+            }
+            .tutorialAnchor("editor.spotifyTimestamps")
+            .id("editor.spotifyTimestamps")
 
             downloadSpotifyAudioButton
+                .tutorialAnchor("editor.spotifyDownload")
+                .id("editor.spotifyDownload")
         }
     }
 
@@ -1449,6 +1467,7 @@ struct TimingEditorView: View {
             start: start,
             end: end > start ? end : track.duration
         )
+        TutorialManager.shared.reportAction(.editorPreviewedSpotifyEdge)
     }
 
     private var isDownloadingThisTrack: Bool {
@@ -2499,13 +2518,14 @@ struct TimingEditorView: View {
     private var hasArrangementChanges: Bool { draftClips != openingClips }
 
     private static let scrollableTutorialAnchors: Set<String> = [
-        "editor.metadata", "editor.waveform", "editor.zoom", "editor.boundary", "editor.fade"
+        "editor.metadata", "editor.waveform", "editor.zoom", "editor.boundary", "editor.fade",
+        "editor.spotifyTimestamps", "editor.spotifyDownload"
     ]
 
     /// Scrolls the current tutorial step's anchor into view, since the scrim highlights a
     /// section's true frame even when it's currently clipped out of the ScrollView's viewport.
     private func scrollToCurrentTutorialAnchor(using proxy: ScrollViewProxy) {
-        guard tutorialManager.activeContext == .timingEditor,
+        guard tutorialManager.activeContext == .timingEditor || tutorialManager.activeContext == .timingEditorSpotify,
               let anchorID = tutorialManager.currentStep?.anchorID,
               Self.scrollableTutorialAnchors.contains(anchorID) else { return }
         withAnimation(.easeInOut(duration: 0.25)) {
