@@ -120,8 +120,12 @@ struct Dance_PlayerApp: App {
                         }
                     }
                 ))
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(!player.hasLoadedProject)
+
+                Button("Download All Spotify Tracks…") { player.isPresentingBulkDownloadConfirmation = true }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .disabled(!player.hasLoadedProject || player.tracks.allSatisfy { $0.source != .spotify })
 
                 Toggle("Cover Art Picker", isOn: Binding(
                     get: { player.isCoverArtWindowOpen },
@@ -142,7 +146,7 @@ struct Dance_PlayerApp: App {
                     .disabled(!player.hasLoadedProject)
 
                 Button("Detect BPM for All Songs") { player.detectBPMForLibrary() }
-                    .keyboardShortcut("b", modifiers: .command)
+                    .keyboardShortcut("t", modifiers: .command)
                     .disabled(!player.hasLoadedProject || player.isImportingContent)
             }
 

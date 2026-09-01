@@ -4,10 +4,17 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import Combine
 
 // MARK: - Row Model
 
 struct WorkbookImportRow: Identifiable {
+    /// Where a non-local row's audio comes from: Spotify streams live, YouTube downloads a local copy.
+    enum RemoteSource: String {
+        case spotify
+        case youtube
+    }
+
     let id = UUID()
     var order: Int?
     var title: String
@@ -16,23 +23,90 @@ struct WorkbookImportRow: Identifiable {
     var lengthText: String
     var rawStyle: String
     var isLocal: Bool
+    var remoteSource: RemoteSource = .spotify
     var resolvedStyles: Set<String>
     var customStyleText: String
     var matchedPopularEdit: PopularEdit?
 
-    // Populated by the "Find Spotify Matches" step — auto-fetched, but still needs an
-    // explicit DJ approval before Confirm will actually import it.
+    // Populated by "Find Matches" but still needs explicit DJ approval before Confirm imports it.
     var spotifyMatch: Track? = nil
     var spotifySearchAttempted: Bool = false
     var isSpotifyApproved: Bool = false
 
+    // YouTube equivalent of the fields above, matched via iTunes catalog for clean metadata; all candidates are kept so the DJ can still pick the cover art.
+    var youtubeCandidates: [PlayerController.ITunesSearchResult] = []
+    var youtubeMatch: PlayerController.ITunesSearchResult? = nil
+    var youtubeSearchAttempted: Bool = false
+    var isYouTubeApproved: Bool = false
+
     // Re-clicking Confirm skips already-imported rows so local files aren't re-prompted.
     var hasBeenImported: Bool = false
 
-    // The track this row became, so the compliance check can measure real audio length
-    // instead of trusting the workbook's Length column.
+    // The track this row became, so the compliance check measures real audio length, not the workbook's Length column.
     var importedTrackID: UUID? = nil
+
+    /// Lightweight snapshot for the project package, omitting non-Codable match objects and the reload-unstable `importedTrackID`.
+    var persisted: PersistedWorkbookImportRow {
+        PersistedWorkbookImportRow(
+            order: order,
+            title: title,
+            artist: artist,
+            bpm: bpm,
+            lengthText: lengthText,
+            rawStyle: rawStyle,
+            isLocal: isLocal,
+            remoteSource: remoteSource,
+            resolvedStyles: Array(resolvedStyles),
+            customStyleText: customStyleText,
+            matchedPopularEditID: matchedPopularEdit?.id,
+            hasBeenImported: hasBeenImported,
+            importedSongHash: nil
+        )
+    }
 }
+
+/// The `Codable` counterpart of `WorkbookImportRow`, saved so a partially imported workbook survives a quit/reopen without re-parsing.
+struct PersistedWorkbookImportRow: Codable {
+    var order: Int?
+    var title: String
+    var artist: String
+    var bpm: String
+    var lengthText: String
+    var rawStyle: String
+    var isLocal: Bool
+    var remoteSource: WorkbookImportRow.RemoteSource
+    var resolvedStyles: [String]
+    var customStyleText: String
+    var matchedPopularEditID: String?
+    var hasBeenImported: Bool
+    var importedSongHash: String?
+
+    /// `tracks` should be whatever the project just loaded, so `importedSongHash` resolves back to that track's fresh id.
+    func restored(usingTracks tracks: [Track]) -> WorkbookImportRow {
+        var row = WorkbookImportRow(
+            order: order,
+            title: title,
+            artist: artist,
+            bpm: bpm,
+            lengthText: lengthText,
+            rawStyle: rawStyle,
+            isLocal: isLocal,
+            resolvedStyles: Set(resolvedStyles),
+            customStyleText: customStyleText,
+            matchedPopularEdit: matchedPopularEditID.flatMap { id in
+                PopularEdit.allCases.first { $0.id == id }
+            }
+        )
+        row.remoteSource = remoteSource
+        row.hasBeenImported = hasBeenImported
+        if let importedSongHash {
+            row.importedTrackID = tracks.first { $0.songHash == importedSongHash }?.id
+        }
+        return row
+    }
+}
+
+extension WorkbookImportRow.RemoteSource: Codable {}
 
 // MARK: - Style resolution
 
@@ -47,27 +121,23 @@ private let workbookStyleAliases: [String: String] = [
 /// Left blank instead of echoing the category label, so the DJ types the actual name during review.
 private let genericStylePlaceholders: Set<String> = ["line dance", "choreography", "mixer"]
 
-/// Tags for how a song is used rather than what it is. A cross-step waltz danced with a
-/// stranger is still a cross-step waltz, so these ride alongside the style.
+/// Tags for how a song is used rather than what it is, so they ride alongside the style rather than replacing it.
 let workbookRoleTagStyles: Set<String> = ["Jam", "Dance with a Stranger"]
 
-/// Matched anywhere in a Style tag, since DJs write these inline ("Cross-Step with a
-/// Stranger", "Rotary (jam)") as often as as their own comma-separated tag.
+/// Matched anywhere in a Style tag, since DJs often write these inline rather than as their own comma-separated tag.
 private let workbookRoleTagKeywords: [(keyword: String, style: String)] = [
     ("stranger", "Dance with a Stranger"),
     ("jam", "Jam"),
 ]
 
-/// Separators DJs use between two tags in one cell, folded to the comma the dropdown itself
-/// uses. None of the predefined styles contain any of these, so splitting on them is safe.
+/// Separators DJs use between two tags in one cell, folded to a comma; safe since no predefined style contains these characters.
 private let workbookTagSeparators = ["/", "+", "&", ";", " - "]
 
 /// Punctuation left around a tag once it's been split out — "Rotary (jam)" leaves "Rotary (".
 private let workbookTokenTrimSet = CharacterSet.whitespacesAndNewlines
     .union(CharacterSet(charactersIn: "()[]-–—"))
 
-/// Stripped only as a fallback, after a token fails to resolve as written — "Barbie Line
-/// Dance" ends in one of these and must keep it.
+/// Stripped only as a fallback after a token fails to resolve as written, since some legitimate names end in these words.
 private let workbookFillerWords: Set<String> = ["dance", "with", "w", "a", "an", "the", "and"]
 
 /// Whole-word, so "Strangers" or "Jamaica" isn't read as a role tag.
@@ -108,8 +178,7 @@ func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, custo
 
     var styles = Set<String>()
 
-    // Pull the role tags out of whichever tag they were written into, keeping what's left of
-    // that tag — "Cross-Step with a Stranger" is a cross-step waltz *and* a stranger dance.
+    // Pull role tags out of whichever tag they were written into, keeping the remainder of that tag as its own style.
     var tokens = normalized
         .split(separator: ",")
         .map { $0.trimmingCharacters(in: workbookTokenTrimSet) }
@@ -126,8 +195,7 @@ func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, custo
             return cleaned.isEmpty ? nil : cleaned
         }
 
-    // "Cross-Step" + "Mixer" chosen together means the specific "Cross-Step Waltz Mixer",
-    // not the generic Mixer category.
+    // "Cross-Step" + "Mixer" together means the specific "Cross-Step Waltz Mixer", not the generic Mixer category.
     let crossStepSpellings = ["cross-step", "cross step", "cross-step waltz", "cross step waltz"]
     let lowerTokens = tokens.map { $0.lowercased() }
     let hasCrossStep = lowerTokens.contains { crossStepSpellings.contains($0) }
@@ -144,8 +212,7 @@ func resolveWorkbookStyles(from rawStyle: String) -> (styles: Set<String>, custo
             continue
         }
 
-        // Retry without the connective words a removed role tag leaves behind: "Cross-Step
-        // with a Stranger" reaches here as "Cross-Step with a", which is just "Cross-Step".
+        // Retry without connective words a removed role tag leaves behind (e.g. "Cross-Step with a").
         let stripped = strippingFillerWords(token)
         if stripped.isEmpty { continue }
         if stripped != token, let canonical = canonicalWorkbookStyle(for: stripped) {
@@ -203,8 +270,7 @@ private struct WorkbookColumnMap {
     var style: Int?
 }
 
-/// Fuzzy header matching so extra/renamed columns in the workbook don't break parsing —
-/// only the first column whose header contains the relevant keyword is used.
+/// Fuzzy header matching (first column containing the keyword wins) so extra/renamed columns don't break parsing.
 private func mapColumns(header: [String]) -> WorkbookColumnMap {
     var map = WorkbookColumnMap()
     for (index, rawHeader) in header.enumerated() {
@@ -222,8 +288,7 @@ private func mapColumns(header: [String]) -> WorkbookColumnMap {
 
 // MARK: - CSV parsing
 
-/// Hand-rolled CSV tokenizer — handles quoted fields, embedded commas/newlines, and
-/// doubled-quote ("") escaping, since spreadsheet exports commonly contain all three.
+/// Hand-rolled CSV tokenizer handling quoted fields, embedded commas/newlines, and doubled-quote escaping.
 func parseCSVRows(data: Data) -> [[String]] {
     guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
         return []
@@ -234,8 +299,7 @@ func parseCSVRows(data: Data) -> [[String]] {
     var currentField = ""
     var insideQuotes = false
 
-    // Iterate Unicode scalars, not Characters — Swift's grapheme clustering merges a
-    // "\r\n" pair into a single Character, which would silently defeat CRLF splitting.
+    // Iterate Unicode scalars, not Characters — grapheme clustering merges "\r\n" into one Character, breaking CRLF splitting.
     let scalars = Array(text.unicodeScalars)
     var i = 0
     while i < scalars.count {
@@ -432,8 +496,7 @@ private func parseWorkbookRows(from rawRows: [[String]]) -> [WorkbookImportRow] 
         let (styles, customText) = resolveWorkbookStyles(from: rawStyle)
         let popularEdit = matchedPopularEdit(title: title, artist: artist, rawStyle: rawStyle)
 
-        // A Popular Edit names the dance, but the workbook's role tags say how it's used —
-        // keep those instead of letting the edit's own style list erase them.
+        // Keep the workbook's role tags instead of letting the Popular Edit's own style list erase them.
         let resolvedStyles = popularEdit
             .map { $0.danceStyles.union(styles.intersection(workbookRoleTagStyles)) } ?? styles
 
@@ -468,8 +531,7 @@ private let closingStylePromotions: [(base: String, last: String)] = [
 
 private let rotaryCloseStyles: Set<String> = ["Rotary Waltz", "Last Rotary Waltz"]
 
-/// The guidelines close on four dances ending in a rotary waltz — so the last four songs,
-/// or five when a solo-jazz dance follows the rotary and would push it out of range.
+/// The guidelines close on four dances ending in a rotary waltz — last four songs, or five if a trailing solo-jazz dance would push it out of range.
 private func closingBlockStart(in rows: [WorkbookImportRow]) -> Int {
     let endsOnRotary = !(rows.last?.resolvedStyles.isDisjoint(with: rotaryCloseStyles) ?? true)
     return max(0, rows.count - (endsOnRotary ? 4 : 5))
@@ -505,20 +567,18 @@ func loadWorkbookRows(from url: URL) -> [WorkbookImportRow] {
 
 private let workbookOrderColumnWidth: CGFloat = 28
 private let workbookSongColumnWidth: CGFloat = 240
-private let workbookSourceColumnWidth: CGFloat = 150
+private let workbookSourceColumnWidth: CGFloat = 160
 private let workbookStylesColumnWidth: CGFloat = 220
 private let workbookBPMColumnWidth: CGFloat = 60
 private let workbookTempoColumnWidth: CGFloat = 66
 private let workbookLengthColumnWidth: CGFloat = 70
 
 
-/// Solid blue, bold white text — used for the primary actions in this flow (Confirm,
-/// Find Spotify Matches, Approve) so they read clearly against the dark background.
-private struct WorkbookPrimaryButtonStyle: ButtonStyle {
+/// Solid blue, bold white text for this flow's primary actions so they read clearly against the dark background.
+struct WorkbookPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
-    /// Greys the button out while still letting it be clicked, for actions that need to
-    /// explain why they aren't available yet.
+    /// Greys the button out while still letting it be clicked, for actions that need to explain why they aren't available yet.
     var isMuted: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -555,10 +615,8 @@ struct WorkbookImportReviewView: View {
     @State private var spotifyFetchCompletedCount = 0
     @State private var spotifyFetchTotalCount = 0
 
-    // Confirm-time fallback for a row that reaches Confirm with no approved match —
-    // rather than just skipping it, let the DJ search or paste a link right there.
+    // Confirm-time fallback: let the DJ search or paste a link instead of just skipping an unapproved row.
     @State private var isPresentingComplianceCheck = false
-    @State private var isPresentingImportFirstNotice = false
     @State private var isPresentingSpotifyFallback = false
     @State private var spotifyFallbackRow: WorkbookImportRow? = nil
     @State private var spotifyFallbackQuery = ""
@@ -566,13 +624,33 @@ struct WorkbookImportReviewView: View {
     @State private var isSearchingSpotifyFallback = false
     @State private var spotifyFallbackContinuation: CheckedContinuation<Track?, Never>? = nil
 
+    @State private var isFetchingYouTubeMatches = false
+    @State private var youtubeFetchTotalCount = 0
+    @State private var youtubeFetchCompletedCount = 0
+
+    // Recovery flow for unmatched YouTube rows, offered once right after the batch fetch finishes.
+    @State private var isPresentingUnmatchedRecovery = false
+    @State private var unmatchedYouTubeRowIDs: [WorkbookImportRow.ID] = []
+    @State private var isPresentingRenameRetry = false
+    @State private var renameRetryRowIDs: [WorkbookImportRow.ID] = []
+
+    /// Spotify vs. YouTube for the whole batch, decided once from the Import button; nil until the DJ picks.
+    @State private var batchRemoteSource: WorkbookImportRow.RemoteSource?
+    @State private var isPresentingSourceChoice = false
+
+    private var hasPendingRemoteRows: Bool {
+        rows.contains { !$0.isLocal && $0.matchedPopularEdit == nil && !$0.hasBeenImported }
+    }
+
+    /// Shown any time a relevant row is pointed at Spotify, not just for the batch-wide choice, so a row flipped via "Try Spotify Instead" still gets a client ID field.
     private var needsSpotify: Bool {
-        rows.contains { !$0.isLocal && $0.matchedPopularEdit == nil }
+        rows.contains { !$0.isLocal && $0.matchedPopularEdit == nil && $0.remoteSource == .spotify }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+                .tutorialAnchor("workbook.header")
             Divider().background(Color(hex: "#242429"))
 
             if needsSpotify {
@@ -592,6 +670,7 @@ struct WorkbookImportReviewView: View {
                 }
             }
             .disabled(isImporting)
+            .tutorialAnchor("workbook.rows")
 
             if !failureSummary.isEmpty {
                 Divider().background(Color(hex: "#242429"))
@@ -603,6 +682,17 @@ struct WorkbookImportReviewView: View {
                 .disabled(isImporting)
         }
         .background(Color(hex: "#0e0e10"))
+        .onAppear {
+            // Deferred a tick: publishing an @Published change inside SwiftUI's own onAppear update pass is undefined behavior and can miss the next render.
+            DispatchQueue.main.async {
+                TutorialManager.shared.startIfNeverSeen(.workbookImporter)
+            }
+            player.syncWorkbookImportProgress(rows)
+        }
+        // Polls to catch every edit, avoiding the need for `WorkbookImportRow` to be `Equatable` or a save call at every mutation site.
+        .onReceive(Timer.publish(every: 4, on: .main, in: .common).autoconnect()) { _ in
+            player.syncWorkbookImportProgress(rows)
+        }
         .overlay {
             if isImporting {
                 importingOverlay
@@ -616,10 +706,81 @@ struct WorkbookImportReviewView: View {
                 isPresentingComplianceCheck = false
             }
         }
-        .alert("Import the songs first", isPresented: $isPresentingImportFirstNotice) {
-            Button("OK", role: .cancel) {}
+        .sheet(isPresented: $isPresentingUnmatchedRecovery) {
+            WorkbookUnmatchedRecoverySheet(
+                player: player,
+                rows: $rows,
+                unmatchedRowIDs: unmatchedYouTubeRowIDs,
+                onTryAllSpotify: { clientID in await tryAllUnmatchedFromSpotify(clientID: clientID) },
+                onRenameAndRetry: beginRenameRetry,
+                onImportAllLocally: { importAllLocally(rowIDs: unmatchedYouTubeRowIDs) },
+                onDismiss: { isPresentingUnmatchedRecovery = false }
+            )
+        }
+        .sheet(isPresented: $isPresentingRenameRetry) {
+            WorkbookRenameRetrySheet(
+                player: player,
+                rows: $rows,
+                rowIDs: renameRetryRowIDs,
+                onImportRemainingLocally: { remainingIDs in importAllLocally(rowIDs: remainingIDs) },
+                onFinished: {
+                    isPresentingRenameRetry = false
+                    startImport()
+                }
+            )
+        }
+        .confirmationDialog(
+            "Import the remaining songs via Spotify or YouTube?",
+            isPresented: $isPresentingSourceChoice,
+            titleVisibility: .visible
+        ) {
+            Button("Import from Spotify") { chooseBatchSource(.spotify) }
+            Button("Download from YouTube") { chooseBatchSource(.youtube) }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Song length is measured from the imported audio, not the workbook's Length column, so every song has to be imported before compliance can be checked.\n\n\(remainingImportCount) song\(remainingImportCount == 1 ? "" : "s") still to import.")
+            Text("Spotify needs either the Spotify app or an open, signed-in Spotify Web Player tab in a browser on this computer, with an active Premium account -- but streams at higher quality. YouTube downloads locally and needs neither.")
+        }
+    }
+
+    /// The Spotify/YouTube choice is made once here; picking fetches matches for every pending song so they can be reviewed before the import click.
+    private func handleImportButtonTapped() {
+        if batchRemoteSource == nil, hasPendingRemoteRows {
+            isPresentingSourceChoice = true
+        } else {
+            startImport()
+        }
+    }
+
+    /// Chains into `startImport` once fetching settles so the DJ needs only one click; YouTube may still detour through unmatched-recovery.
+    private func chooseBatchSource(_ source: WorkbookImportRow.RemoteSource) {
+        batchRemoteSource = source
+        for index in rows.indices where !rows[index].isLocal && rows[index].matchedPopularEdit == nil {
+            rows[index].remoteSource = source
+        }
+
+        switch source {
+        case .spotify:
+            let clientID = spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clientID.isEmpty else { return }
+            let targetIDs = rows.indices
+                .filter { !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil
+                    && rows[$0].remoteSource == .spotify && rows[$0].spotifyMatch == nil }
+                .map { rows[$0].id }
+            Task {
+                await performSpotifyFetch(rowIDs: targetIDs, clientID: clientID)
+                startImport()
+            }
+        case .youtube:
+            let targetIDs = rows.indices
+                .filter { !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil
+                    && rows[$0].remoteSource == .youtube && rows[$0].youtubeMatch == nil }
+                .map { rows[$0].id }
+            Task {
+                await performYouTubeFetch(rowIDs: targetIDs)
+                if !isPresentingUnmatchedRecovery {
+                    startImport()
+                }
+            }
         }
     }
 
@@ -669,14 +830,13 @@ struct WorkbookImportReviewView: View {
                 .disabled(isFetchingSpotifyMatches || spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
-            Text("Fetches cover art for every Spotify-marked row up front — review each match below and confirm it before importing. You'll be asked to approve access in your browser the first time.")
+            Text("Fetches cover art for every Spotify-marked row up front — review each match below and confirm it before importing. You'll be asked to approve access in your browser the first time. Needs either the Spotify app or an open, signed-in Spotify Web Player tab in a browser on this computer, with an active Premium account, but streams at higher audio quality than a YouTube download.")
                 .font(.system(size: 11))
                 .foregroundColor(Color(hex: "#52525b"))
 
             Divider().background(Color(hex: "#242429"))
 
-            // Offered here as well as in Advanced Settings — import is when the workbook's BPM
-            // column is in front of the DJ, so it's the natural place to decide.
+            // Offered here too since import is when the workbook's BPM column is in front of the DJ.
             Toggle("Detect BPM for local songs on import", isOn: $player.bpmDetectionOnImport)
                 .toggleStyle(.switch)
                 .font(.system(size: 12, weight: .medium))
@@ -695,7 +855,7 @@ struct WorkbookImportReviewView: View {
         HStack(spacing: 12) {
             Text("#").frame(width: workbookOrderColumnWidth, alignment: .leading)
             Text("SONG").frame(width: workbookSongColumnWidth, alignment: .leading)
-            Text("LOCAL FILE?").frame(width: workbookSourceColumnWidth, alignment: .leading)
+            Text("SOURCE").frame(width: workbookSourceColumnWidth, alignment: .leading)
             Text("STYLES").frame(width: workbookStylesColumnWidth, alignment: .leading)
             Text("BPM").frame(width: workbookBPMColumnWidth, alignment: .leading)
             Text("TEMPO").frame(width: workbookTempoColumnWidth, alignment: .leading)
@@ -736,32 +896,33 @@ struct WorkbookImportReviewView: View {
 
             Spacer()
 
-            // Stays clickable while greyed out so it can explain why it isn't ready yet.
-            Button("Check Guideline Compliance") {
-                if hasImportedEverything {
-                    isPresentingComplianceCheck = true
-                } else {
-                    isPresentingImportFirstNotice = true
-                }
-            }
-            .buttonStyle(WorkbookPrimaryButtonStyle(isMuted: !hasImportedEverything))
-            .pointingHandCursor()
-            .padding(.trailing, 8)
-
-            if hasImportedEverything {
-                Button("Save") {
-                    onFinished()
-                }
-                .buttonStyle(WorkbookPrimaryButtonStyle())
-                .pointingHandCursor()
-            } else {
-                Button(action: startImport) {
-                    Text("Import \(remainingImportCount) Song\(remainingImportCount == 1 ? "" : "s")")
-                }
+            // Generic label rather than a live count -- this is one step in a fixed flow, not a counter.
+            Button("Add Songs", action: handleImportButtonTapped)
                 .buttonStyle(WorkbookPrimaryButtonStyle())
                 .pointingHandCursor()
                 .disabled(remainingImportCount == 0)
+                .padding(.trailing, 8)
+                .tutorialAnchor("workbook.import")
+
+            // Genuinely disabled until every song has landed, so compliance checks don't run against stale/incomplete data.
+            Button("Check Guideline Compliance") {
+                isPresentingComplianceCheck = true
             }
+            .buttonStyle(WorkbookPrimaryButtonStyle())
+            .pointingHandCursor()
+            .disabled(!canFinishImport)
+            .help(canFinishImport ? "" : "Add all songs first — \(remainingImportCount) still to go\(failureSummary.isEmpty ? "" : ", plus some that need attention")")
+            .padding(.trailing, 8)
+            .tutorialAnchor("workbook.compliance")
+
+            Button("Import Project") {
+                onFinished()
+            }
+            .buttonStyle(WorkbookPrimaryButtonStyle())
+            .pointingHandCursor()
+            .disabled(!canFinishImport)
+            .help(canFinishImport ? "" : "Add all songs first — \(remainingImportCount) still to go\(failureSummary.isEmpty ? "" : ", plus some that need attention")")
+            .tutorialAnchor("workbook.finish")
         }
         .padding(16)
     }
@@ -773,6 +934,11 @@ struct WorkbookImportReviewView: View {
     /// Compliance needs every song's real audio length, so it waits for a complete import.
     private var hasImportedEverything: Bool {
         !rows.isEmpty && remainingImportCount == 0
+    }
+
+    /// Gates Check Guideline Compliance and Import Project, which both read imported tracks and shouldn't run against a skipped/failed row's incomplete data.
+    private var canFinishImport: Bool {
+        hasImportedEverything && failureSummary.isEmpty
     }
 
     private var importingOverlay: some View {
@@ -801,31 +967,131 @@ struct WorkbookImportReviewView: View {
         guard !clientID.isEmpty else { return }
 
         let targetIndices = rows.indices.filter {
-            !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil && rows[$0].spotifyMatch == nil
+            !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil
+                && rows[$0].remoteSource == .spotify && rows[$0].spotifyMatch == nil
         }
         guard !targetIndices.isEmpty else { return }
 
+        let targetIDs = targetIndices.map { rows[$0].id }
+        Task { await performSpotifyFetch(rowIDs: targetIDs, clientID: clientID) }
+    }
+
+    /// Runs every row's search concurrently rather than serially, since sequential round trips made the unmatched-recovery popup feel painfully slow to appear.
+    private func performSpotifyFetch(rowIDs: [WorkbookImportRow.ID], clientID: String) async {
+        guard !rowIDs.isEmpty else { return }
+
         isFetchingSpotifyMatches = true
-        spotifyFetchTotalCount = targetIndices.count
+        spotifyFetchTotalCount = rowIDs.count
         spotifyFetchCompletedCount = 0
 
-        Task {
-            for index in targetIndices {
-                let title = rows[index].title
-                let artist = rows[index].artist
-                let results = await player.searchWorkbookSpotifyTracks(title: title, artist: artist, clientID: clientID)
-                await MainActor.run {
+        await withTaskGroup(of: (WorkbookImportRow.ID, [Track]).self) { group in
+            for id in rowIDs {
+                guard let row = rows.first(where: { $0.id == id }) else { continue }
+                let title = row.title
+                let artist = row.artist
+                group.addTask { [player] in
+                    let results = await player.searchWorkbookSpotifyTracks(title: title, artist: artist, clientID: clientID)
+                    return (id, results)
+                }
+            }
+            for await (id, results) in group {
+                if let index = rows.firstIndex(where: { $0.id == id }) {
                     rows[index].spotifyMatch = results.first
                     rows[index].spotifySearchAttempted = true
                     // Pre-approved by default — the DJ deselects it if the match is wrong.
                     rows[index].isSpotifyApproved = results.first != nil
-                    spotifyFetchCompletedCount += 1
                 }
-            }
-            await MainActor.run {
-                isFetchingSpotifyMatches = false
+                spotifyFetchCompletedCount += 1
             }
         }
+
+        isFetchingSpotifyMatches = false
+    }
+
+    /// Same idea as `fetchAllSpotifyMatches`, but against iTunes's public catalog search: no client ID or sign-in needed.
+    private func fetchAllYouTubeMatches() {
+        let targetIndices = rows.indices.filter {
+            !rows[$0].isLocal && rows[$0].matchedPopularEdit == nil
+                && rows[$0].remoteSource == .youtube && rows[$0].youtubeMatch == nil
+        }
+        guard !targetIndices.isEmpty else { return }
+
+        let targetIDs = targetIndices.map { rows[$0].id }
+        Task { await performYouTubeFetch(rowIDs: targetIDs) }
+    }
+
+    private func performYouTubeFetch(rowIDs: [WorkbookImportRow.ID]) async {
+        guard !rowIDs.isEmpty else { return }
+
+        isFetchingYouTubeMatches = true
+        youtubeFetchTotalCount = rowIDs.count
+        youtubeFetchCompletedCount = 0
+
+        await withTaskGroup(of: (WorkbookImportRow.ID, [PlayerController.ITunesSearchResult]).self) { group in
+            for id in rowIDs {
+                guard let row = rows.first(where: { $0.id == id }) else { continue }
+                let title = row.title
+                let artist = row.artist
+                group.addTask { [player] in
+                    let cleanedTitle = PlayerController.cleanedYouTubeStyleTitle(title)
+                    let query = (artist.isEmpty || artist == "Unknown Artist")
+                        ? cleanedTitle
+                        : "\(artist) \(cleanedTitle)"
+                    let results = await player.fetchITunesResults(query: query)
+                    return (id, results)
+                }
+            }
+            for await (id, results) in group {
+                if let index = rows.firstIndex(where: { $0.id == id }) {
+                    rows[index].youtubeCandidates = results
+                    rows[index].youtubeMatch = results.first
+                    rows[index].youtubeSearchAttempted = true
+                    // Pre-approved by default; the DJ deselects it if wrong or picks a different candidate below.
+                    rows[index].isYouTubeApproved = results.first != nil
+                }
+                youtubeFetchCompletedCount += 1
+            }
+        }
+
+        isFetchingYouTubeMatches = false
+
+        let stillUnmatched = rowIDs.filter { id in
+            guard let row = rows.first(where: { $0.id == id }) else { return false }
+            return row.youtubeMatch == nil
+        }
+        if !stillUnmatched.isEmpty {
+            unmatchedYouTubeRowIDs = stillUnmatched
+            isPresentingUnmatchedRecovery = true
+        }
+    }
+
+    /// Awaits the connect-and-search before returning, so the recovery sheet's spinner stays up through a first-time Spotify authorization instead of closing prematurely.
+    private func tryAllUnmatchedFromSpotify(clientID: String) async {
+        let ids = unmatchedYouTubeRowIDs
+        for index in rows.indices where ids.contains(rows[index].id) {
+            rows[index].remoteSource = .spotify
+            rows[index].spotifyMatch = nil
+            rows[index].spotifySearchAttempted = false
+        }
+        spotifyClientID = clientID
+        await performSpotifyFetch(rowIDs: ids, clientID: clientID)
+        startImport()
+    }
+
+    private func beginRenameRetry() {
+        renameRetryRowIDs = unmatchedYouTubeRowIDs
+        isPresentingUnmatchedRecovery = false
+        isPresentingRenameRetry = true
+    }
+
+    /// Reused by both recovery sheets' "Import All Locally"; flips `isLocal` so `startImport` prompts a file picker instead of retrying a remote source.
+    private func importAllLocally(rowIDs: [WorkbookImportRow.ID]) {
+        for index in rows.indices where rowIDs.contains(rows[index].id) {
+            rows[index].isLocal = true
+        }
+        isPresentingUnmatchedRecovery = false
+        isPresentingRenameRetry = false
+        startImport()
     }
 
     private func startImport() {
@@ -879,6 +1145,27 @@ struct WorkbookImportReviewView: View {
                             failureSummary.append("\(row.title) — no file selected, skipped")
                         }
                     }
+                } else if row.remoteSource == .youtube {
+                    // An unapproved match means the DJ rejected it, so fall back to a direct title/artist search instead.
+                    let match = row.isYouTubeApproved ? row.youtubeMatch : nil
+                    let matchArtist = (match?.artistName).flatMap { $0.isEmpty ? nil : $0 } ?? row.artist
+                    let matchTitle = match?.trackName ?? row.title
+                    do {
+                        try await player.importWorkbookYouTubeMatch(
+                            artist: matchArtist,
+                            title: matchTitle,
+                            expectedDurationSeconds: match?.durationSeconds,
+                            artworkURL: match?.artworkURL,
+                            danceStyles: row.resolvedStyles,
+                            customStyle: row.customStyleText,
+                            manualBPM: row.bpm
+                        )
+                        await MainActor.run { markImported(index, since: trackCountBefore) }
+                    } catch {
+                        await MainActor.run {
+                            failureSummary.append("\(row.title) — YouTube download failed: \(error.localizedDescription)")
+                        }
+                    }
                 } else if let match = row.spotifyMatch, row.isSpotifyApproved {
                     await player.importWorkbookSpotifyMatch(
                         match,
@@ -894,8 +1181,7 @@ struct WorkbookImportReviewView: View {
                         failureSummary.append("\(row.title) — no Spotify Client ID entered, skipped")
                     }
                 } else {
-                    // No approved match by Confirm time — rather than just skipping it,
-                    // let the DJ search or paste a link right here, one last chance.
+                    // No approved match by Confirm time — one last chance for the DJ to search or paste a link.
                     if let chosen = await presentSpotifyFallback(for: row, clientID: clientID) {
                         await player.importWorkbookSpotifyMatch(
                             chosen,
@@ -921,8 +1207,7 @@ struct WorkbookImportReviewView: View {
         }
     }
 
-    /// Records which track a row became. Imports append exactly one track on success, so a
-    /// count that didn't grow means the import silently failed and there's nothing to link.
+    /// Records which track a row became; a track count that didn't grow means the import silently failed.
     private func markImported(_ index: Int, since trackCountBefore: Int) {
         rows[index].hasBeenImported = true
         if player.tracks.count > trackCountBefore, let imported = player.tracks.last {
@@ -931,6 +1216,8 @@ struct WorkbookImportReviewView: View {
             rows[index].title = imported.title
             rows[index].artist = imported.artist
         }
+        // Persisted right away so a crash between songs doesn't cost more progress than the current import.
+        player.syncWorkbookImportProgress(rows)
     }
 
     /// Length is measured from the real imported audio, not the workbook's Length column.
@@ -941,7 +1228,7 @@ struct WorkbookImportReviewView: View {
                   let track = player.tracks.first(where: { $0.id == trackID })
             else { continue }
             metrics[row.id] = ImportedSongMetrics(
-                playingMinutes: track.effectiveDuration / 60.0,
+                playingMinutes: track.effectiveArrangedDuration / 60.0,
                 speedMultiplier: track.speedMultiplier
             )
         }
@@ -1107,15 +1394,18 @@ private struct WorkbookRowEditor: View {
     /// Artwork for a row matched to a bundled Popular Edit, so it's visible before import.
     @State private var bundledArtwork: NSImage? = nil
 
-    private var needsSpotifyMatch: Bool {
+    private var needsRemoteMatch: Bool {
         !row.isLocal && row.matchedPopularEdit == nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             mainRow
-            if needsSpotifyMatch {
-                spotifyMatchBar
+            if needsRemoteMatch {
+                switch row.remoteSource {
+                case .spotify: spotifyMatchBar
+                case .youtube: youtubeMatchBar
+                }
             }
         }
         .padding(.vertical, 8)
@@ -1151,8 +1441,11 @@ private struct WorkbookRowEditor: View {
                             .foregroundColor(Color(hex: "#22c55e"))
                     }
                 } else {
+                    // Spotify vs. YouTube is chosen once for the whole batch from the Import button below, not per row.
                     Toggle(isOn: $row.isLocal) {
-                        EmptyView()
+                        Text("Local File")
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "#a3a3ac"))
                     }
                     .toggleStyle(.checkbox)
                 }
@@ -1315,6 +1608,177 @@ private struct WorkbookRowEditor: View {
                 }
 
                 Spacer()
+
+                // Lets this one row fall back to YouTube (e.g. a bad or missing Spotify match) without reopening the batch-wide choice.
+                Button("Try YouTube Instead") { retryYouTubeSearch() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .pointingHandCursor()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+    }
+
+    /// Switches this one row to YouTube and searches it immediately, independent of the batch-wide choice.
+    private func retryYouTubeSearch() {
+        row.remoteSource = .youtube
+        row.youtubeMatch = nil
+        row.youtubeCandidates = []
+        row.youtubeSearchAttempted = false
+
+        Task {
+            let cleanedTitle = PlayerController.cleanedYouTubeStyleTitle(row.title)
+            let query = (row.artist.isEmpty || row.artist == "Unknown Artist")
+                ? cleanedTitle
+                : "\(row.artist) \(cleanedTitle)"
+            let results = await player.fetchITunesResults(query: query)
+            await MainActor.run {
+                row.youtubeCandidates = results
+                row.youtubeMatch = results.first
+                row.youtubeSearchAttempted = true
+                row.isYouTubeApproved = results.first != nil
+            }
+        }
+    }
+
+    /// The reverse of the above -- switches this one row back to Spotify and searches it.
+    private func retrySpotifySearch() {
+        let clientID = player.spotifyClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clientID.isEmpty else { return }
+
+        row.remoteSource = .spotify
+        row.spotifyMatch = nil
+        row.spotifySearchAttempted = false
+
+        Task {
+            let results = await player.searchWorkbookSpotifyTracks(title: row.title, artist: row.artist, clientID: clientID)
+            await MainActor.run {
+                row.spotifyMatch = results.first
+                row.spotifySearchAttempted = true
+                row.isSpotifyApproved = results.first != nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var youtubeMatchBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                Spacer().frame(width: workbookOrderColumnWidth + 12)
+                Text("Downloading from YouTube (matched via iTunes):")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                Spacer().frame(width: workbookOrderColumnWidth + 12)
+
+                Group {
+                    if let match = row.youtubeMatch {
+                        AsyncImage(url: match.artworkURL) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "music.note")
+                                .foregroundColor(Color(hex: "#71717a"))
+                        }
+                    } else if row.youtubeSearchAttempted {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundColor(Color(hex: "#eab308"))
+                    } else {
+                        Image(systemName: "hourglass")
+                            .foregroundColor(Color(hex: "#52525b"))
+                    }
+                }
+                .frame(width: 30, height: 30)
+                .background(Color(hex: "#18181b"))
+                .cornerRadius(4)
+
+                if let match = row.youtubeMatch {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(match.trackName)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text(match.artistName)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "#71717a"))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: 260, alignment: .leading)
+
+                    Button(action: { row.isYouTubeApproved.toggle() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: row.isYouTubeApproved ? "checkmark.circle.fill" : "circle")
+                            Text(row.isYouTubeApproved ? "Import Confirmed" : "Confirm Import")
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(row.isYouTubeApproved ? .white : Color(hex: "#3478f6"))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(row.isYouTubeApproved ? Color(hex: "#3478f6") : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color(hex: "#3478f6"), lineWidth: 1)
+                    )
+                    .cornerRadius(5)
+                    .pointingHandCursor()
+                } else if row.youtubeSearchAttempted {
+                    Text("No match found — fix the title/artist under Edit, then click \"Find Matches\" again")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#eab308"))
+                } else {
+                    Text("Not searched yet")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#52525b"))
+                }
+
+                Spacer()
+
+                // Lets this row alone fall back to Spotify if YouTube can't find a working file.
+                Button("Try Spotify Instead") { retrySpotifySearch() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .pointingHandCursor()
+            }
+
+            // Cover art is still the DJ's call, not just iTunes's top rank -- same candidates as the standalone Download File search, laid out for a quick tap.
+            if row.youtubeCandidates.count > 1 {
+                HStack(spacing: 6) {
+                    Spacer().frame(width: workbookOrderColumnWidth + 12 + 30 + 10)
+                    ForEach(row.youtubeCandidates) { candidate in
+                        Button {
+                            row.youtubeMatch = candidate
+                            row.isYouTubeApproved = true
+                        } label: {
+                            AsyncImage(url: candidate.artworkURL) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Image(systemName: "music.note")
+                                    .foregroundColor(Color(hex: "#71717a"))
+                            }
+                            .frame(width: 26, height: 26)
+                            .background(Color(hex: "#18181b"))
+                            .cornerRadius(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(
+                                        candidate.id == row.youtubeMatch?.id ? Color(hex: "#3478f6") : .clear,
+                                        lineWidth: 2
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                        .help("\(candidate.trackName) — \(candidate.artistName)")
+                    }
+                    Spacer()
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -1348,7 +1812,7 @@ private struct WorkbookRowEditor: View {
     private var lengthCell: some View {
         Group {
             if let track = importedTrack {
-                Text(Self.formatDuration(track.effectiveDuration))
+                Text(Self.formatDuration(track.effectiveArrangedDuration))
                     .foregroundColor(.white)
             } else {
                 Text(row.lengthText.isEmpty ? "—" : row.lengthText)
@@ -1498,8 +1962,7 @@ struct WorkbookSongEditorSheet: View {
         .onAppear(perform: load)
     }
 
-    /// Mirrors the main player's tempo control: a slider you can drive either by percentage
-    /// or by target BPM, whichever the DJ is thinking in.
+    /// Mirrors the main player's tempo control: drive it by percentage or by target BPM, whichever the DJ prefers.
     private var tempoSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {

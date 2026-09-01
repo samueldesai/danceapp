@@ -24,27 +24,11 @@ struct ContentView: View {
                 WorkbookImportReviewView(
                     player: player,
                     rows: workbookRows,
-                    onFinished: { player.pendingWorkbookImport = nil }
+                    onFinished: { player.clearWorkbookImportProgress() }
                 )
             } else if player.hasLoadedProject {
                 QueueSplitView(player: player)
                     .disabled(player.isImportingContent)
-
-                if player.selectedTrackForEditing != nil {
-                    Color.black.opacity(0.4)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                player.selectedTrackForEditing = nil
-                            }
-                        }
-
-                    HStack {
-                        Spacer()
-                        MetadataEditorPanel(player: player)
-                            .frame(width: 320)
-                            .transition(.move(edge: .trailing))
-                    }
-                }
             } else {
                 ProjectWelcomeView(player: player)
             }
@@ -86,13 +70,18 @@ struct ContentView: View {
                 .cornerRadius(12)
                 .shadow(color: .black.opacity(0.35), radius: 20, x: 0, y: 8)
             }
+
+            // Same celebration as the audience screen; last in the ZStack so it's in front of everything.
+            if showsJamConfetti {
+                ConfettiView()
+                    .edgesIgnoringSafeArea(.all)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.5), value: showsJamConfetti)
         .background(Color(hex: "#0e0e10"))
         .preferredColorScheme(.dark)
-        .animation(
-            player.animationsEnabled ? .easeInOut(duration: 0.2) : nil,
-            value: player.selectedTrackForEditing
-        )
         .animation(.easeInOut(duration: 0.15), value: player.isImportingContent)
         .navigationTitle(player.projectName)
         .onChange(of: scenePhase) { _, newPhase in
@@ -100,16 +89,14 @@ struct ContentView: View {
                 player.saveProjectOnCloseIfNeeded()
             }
         }
-        // A .dbdj can arrive before this view exists, so also check on appear.
-        // Deferred a tick: SwiftUI runs these hooks inside its update pass, where publishing is undefined behavior.
+        // A .dbdj can arrive before this view exists, so also check on appear (deferred a tick since publishing here is undefined behavior).
         .onAppear {
             DispatchQueue.main.async {
                 consumePendingProjectFile(openRequest.pending)
                 player.relevelLibraryGainOnLaunch()
             }
         }
-        // Closing the window leaves the app running, so save and unload here rather than
-        // waiting for a quit that may never come.
+        // Closing the window leaves the app running, so save and unload here rather than waiting for a quit that may never come.
         .onDisappear {
             DispatchQueue.main.async {
                 player.closeProjectAfterLastWindowClosed()
@@ -128,6 +115,22 @@ struct ContentView: View {
         .sheet(isPresented: $player.isPresentingSpotifyKeyEditor) {
             SpotifyKeyEditor(player: player) { player.isPresentingSpotifyKeyEditor = false }
         }
+        .confirmationDialog(
+            "Download all Spotify tracks locally?",
+            isPresented: $player.isPresentingBulkDownloadConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Download All") { player.downloadAllSpotifyTracks() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = player.tracks.filter { $0.source == .spotify }.count
+            Text("This looks up a YouTube match for each of the \(count) Spotify track\(count == 1 ? "" : "s") in this project and switches them over to the downloaded local file. This can take a while for a large queue.")
+        }
+        .overlay {
+            if player.isBulkDownloadingSpotifyTracks {
+                BulkDownloadProgressOverlay(player: player)
+            }
+        }
         // Keyed on the song so the sheet rebuilds fresh per track; the draft timings and decoded waveform don't carry over.
         .sheet(isPresented: Binding(
             get: { player.timingEditorTrackID != nil },
@@ -138,14 +141,59 @@ struct ContentView: View {
                     .id(trackID)
             }
         }
+        .tutorialOverlayHost(for: [.mainControl, .workbookImporter])
     }
 
-    /// Takes the URL from the request, not the published property, which still holds its old
-    /// value while subscribers run. Deduped by id so it can't open twice.
+    /// Same rule as the audience screen's `showsConfetti` -- through the pivot call, the jam announcement, and the jam itself.
+    private var showsJamConfetti: Bool {
+        if player.isShowingPivots { return true }
+        guard player.currentTrack?.isJam == true else { return false }
+        return player.isBetweenSongs || player.isPlaying
+    }
+
+    /// Takes the URL from the request, not the published property, which still holds its old value while subscribers run.
     private func consumePendingProjectFile(_ request: ProjectFileOpenRequest.Request?) {
         guard let request, request.id != handledProjectRequestID else { return }
         handledProjectRequestID = request.id
         player.openProjectFile(at: request.url)
+    }
+}
+
+/// Covers the whole window during "Download All Spotify Tracks" so the app doesn't look hung during a slow, one-at-a-time YouTube search.
+struct BulkDownloadProgressOverlay: View {
+    @ObservedObject var player: PlayerController
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView(
+                    value: Double(player.bulkDownloadCompletedCount),
+                    total: Double(max(player.bulkDownloadTotalCount, 1))
+                )
+                .frame(width: 260)
+
+                Text("Downloading \(player.bulkDownloadCompletedCount) of \(player.bulkDownloadTotalCount)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+
+                if let statusMessage = player.spotifyStatusMessage {
+                    Text(statusMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#a3a3ac"))
+                        .lineLimit(1)
+                        .frame(maxWidth: 320)
+                }
+            }
+            .padding(28)
+            .background(Color(hex: "#18181b"))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(hex: "#27272a"), lineWidth: 1)
+            )
+        }
     }
 }
 
@@ -212,7 +260,7 @@ struct ProjectWelcomeView: View {
                 Spacer()
                 HStack {
                     Spacer()
-                    Text("Created by Samuel Desai. Special thanks to Akshay Srivatsan, Rehman Hassan, Wally Niu, and Joseph Lucero for input.")
+                    Text("Created by Samuel Desai. Special thanks to Akshay Srivatsan, Ness Arikan, Wally Niu, Eddy Hudson, and Joseph Lucero for input.")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Color(hex: "#71717a"))
                         .padding(.trailing, 18)
@@ -278,15 +326,19 @@ struct NewProjectDialog: View {
     var onDismiss: () -> Void
 
     @State private var projectName: String = ""
-    /// Chosen by the DJ via Browse. Autosave is always on, so this is simply where the
-    /// project's .dbdj lives.
+    /// Chosen by the DJ via Browse; since autosave is always on, this is simply where the project's .dbdj lives.
     @State private var projectFolderURL: URL? = nil
     @State private var importFromWorkbook: Bool = false
     @State private var workbookURL: URL? = nil
+    @State private var runTutorialAfterCreate: Bool = true
+    @State private var isPresentingPathNotice = false
+    @State private var isPresentingOverwriteConfirm = false
+    @State private var overwriteDestinationName = ""
+    @State private var isPresentingWorkbookIssue = false
 
+    /// Deliberately doesn't check for a folder here -- `create()` explains that with its own alert.
     private var canCreate: Bool {
         guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if projectFolderURL == nil { return false }
         if importFromWorkbook, workbookURL == nil { return false }
         return true
     }
@@ -343,6 +395,14 @@ struct NewProjectDialog: View {
                     )
                     .opacity(importFromWorkbook ? 1 : 0.4)
                 }
+
+                Divider().background(Color(hex: "#242429"))
+
+                Toggle("Run tutorial after creating", isOn: $runTutorialAfterCreate)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .pointingHandCursor()
             }
             .padding(16)
 
@@ -357,6 +417,8 @@ struct NewProjectDialog: View {
 
                 Button("Create", action: create)
                     .buttonStyle(.borderedProminent)
+                    // Stays clickable with no path so `create()` can explain why via alert, but greyed out so it doesn't look ready.
+                    .tint(projectFolderURL == nil ? Color(hex: "#3f3f46") : Color.accentColor)
                     .disabled(!canCreate)
                     .pointingHandCursor()
             }
@@ -364,6 +426,27 @@ struct NewProjectDialog: View {
         }
         .frame(width: 460)
         .background(Color(hex: "#0e0e10"))
+        .alert("No Path Selected", isPresented: $isPresentingPathNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Select a path and then try again.")
+        }
+        .alert("No Songs Found", isPresented: $isPresentingWorkbookIssue) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Couldn't find any recognizable song rows in that workbook. Check that it has \"Song Title\" and \"Artist\" columns, then check the spreadsheet and try again.")
+        }
+        .alert("Overwrite Existing Project?", isPresented: $isPresentingOverwriteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            // Deferred a tick -- calling `onDismiss()` (which tears down this whole sheet)
+            // synchronously from inside the alert's own action races the alert's dismissal on
+            // macOS and can silently drop it, leaving the New Project dialog stuck on screen.
+            Button("Overwrite", role: .destructive) {
+                DispatchQueue.main.async { proceedWithCreate() }
+            }
+        } message: {
+            Text("\"\(overwriteDestinationName).\(PlayerController.projectFileExtension)\" already exists at this path. Creating this project will overwrite it.")
+        }
     }
 
     private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -414,9 +497,53 @@ struct NewProjectDialog: View {
     }
 
     private func create() {
-        guard let saveFolderURL = projectFolderURL else { return }
+        guard let saveFolderURL = projectFolderURL else {
+            isPresentingPathNotice = true
+            return
+        }
+
+        // Checked here, before the project exists or this dialog dismisses, rather than after
+        // `player.createProject` builds an empty project and only then discovers the workbook
+        // is bad -- that left the DJ looking at a stuck dialog with no clear way back.
+        if importFromWorkbook, let workbookURL, loadWorkbookRows(from: workbookURL).isEmpty {
+            isPresentingWorkbookIssue = true
+            return
+        }
+
+        let sanitizedName = player.sanitizeProjectName(projectName)
+        let destinationURL = saveFolderURL
+            .appendingPathComponent("\(sanitizedName).\(PlayerController.projectFileExtension)")
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            overwriteDestinationName = sanitizedName
+            isPresentingOverwriteConfirm = true
+            return
+        }
+
+        proceedWithCreate()
+    }
+
+    private func proceedWithCreate() {
+        guard let saveFolderURL = projectFolderURL else {
+            isPresentingPathNotice = true
+            return
+        }
 
         onDismiss()
+        if runTutorialAfterCreate {
+            TutorialManager.shared.scheduleStart(.mainControl)
+            // A workbook import shows its own review screen first -- queue that tour too.
+            if importFromWorkbook {
+                TutorialManager.shared.scheduleStart(.workbookImporter)
+            }
+            // Queued for whenever the DJ first reaches each of these -- previously missing here,
+            // so checking this box didn't bring back the Spotify/YouTube importer tours once
+            // they'd already been seen once.
+            TutorialManager.shared.scheduleStart(.timingEditor)
+            TutorialManager.shared.scheduleStart(.spotifyImporter)
+            TutorialManager.shared.scheduleStart(.songImporter)
+        } else {
+            TutorialManager.shared.markSeen(.mainControl)
+        }
         player.createProject(
             named: projectName,
             autosaveFolder: saveFolderURL,
@@ -500,10 +627,11 @@ struct QueueSplitView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .coordinateSpace(name: Self.dragSpace)
         }
+        // Deferred a tick: publishing during `onAppear`'s own update pass is undefined behavior (see ContentView's onAppear).
+        .onAppear { DispatchQueue.main.async { TutorialManager.shared.startIfNeverSeen(.mainControl) } }
     }
 
-    /// The whole gap is the grab target; an overlay reaching outside its parent isn't reliably
-    /// hit-tested, so the hairline alone used to catch the cursor.
+    /// The whole gap is the grab target, since an overlay reaching outside its parent isn't reliably hit-tested.
     private func divider(ceiling: CGFloat) -> some View {
         ZStack {
             Color.clear
@@ -515,8 +643,7 @@ struct QueueSplitView: View {
         .contentShape(Rectangle())
         .resizeLeftRightCursor()
         .gesture(
-            // Absolute cursor x, not translation: the divider moves as it's dragged, so a
-            // translation measured in its own space fed back and trailed the cursor.
+            // Absolute cursor x, not translation: translation measured in the divider's own space trailed the cursor as it moved.
             DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
                 .onChanged { value in
                     player.isDraggingDivider = true
@@ -540,15 +667,23 @@ struct PlaylistView: View {
     @State private var dropTargetTrackID: UUID? = nil
     @State private var lastDropHapticTrackID: UUID? = nil
 
-    /// Command-click toggles one row; shift-click extends from the last row that was clicked at
-    /// all, matching Finder rather than the narrower "last row added to the selection" — a
-    /// shift-click right after a plain click should extend from that plain click.
+    /// Command-click toggles one row; shift-click extends from the last row clicked at all, matching Finder rather than just the selection.
     @State private var selectedTrackIDs: Set<UUID> = []
     @State private var lastClickedTrackID: UUID? = nil
 
     @State private var isShowingAddMenu = false
     @State private var isShowingSpotifyImporter = false
     @State private var spotifyImportKind: SpotifyImportKind = .track
+    @State private var isShowingYouTubeImporter = false
+
+    @ObservedObject private var tutorialManager = TutorialManager.shared
+    @ObservedObject private var tutorialSampleData = TutorialSampleData.shared
+    @State private var draggedSampleID: UUID?
+
+    /// Shows sample demo data instead of the (empty, on a brand-new project) real queue while the main control tour runs.
+    private var isShowingTutorialSample: Bool {
+        tutorialManager.activeContext == .mainControl && player.tracks.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -564,13 +699,17 @@ struct PlaylistView: View {
                 Spacer()
                 
                 // ADD TRACK BUTTON (Kept here for library management convenience)
-                Button(action: { isShowingAddMenu.toggle() }) {
+                Button(action: {
+                    isShowingAddMenu.toggle()
+                    if isShowingTutorialSample { TutorialManager.shared.reportAction(.openedAddMenu) }
+                }) {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundColor(Color(hex: "#a3a3ac"))
                 }
                 .buttonStyle(.plain)
                 .pointingHandCursor()
+                .tutorialAnchor("playlist.add")
                 .popover(isPresented: $isShowingAddMenu, arrowEdge: .bottom) {
                     AddTrackMenu(
                         onSpotifyTrack: {
@@ -587,23 +726,108 @@ struct PlaylistView: View {
                             isShowingAddMenu = false
                             player.openFilePicker()
                         },
+                        onYouTubeDownload: {
+                            isShowingAddMenu = false
+                            isShowingYouTubeImporter = true
+                        },
                         onPopularEdit: { edit in
                             isShowingAddMenu = false
-                            player.importPopularEdit(edit)
-                        }
+                            if isShowingTutorialSample {
+                                // A real import would add a real track, which would end the
+                                // tutorial's sample-data mode outright -- simulated instead, the
+                                // same as the rest of this demo.
+                                if let spare = tutorialSampleData.spareTrack() {
+                                    var simulated = spare
+                                    simulated.title = edit.displayName
+                                    simulated.artist = "Popular Edit"
+                                    simulated.danceStyles = edit.danceStyles
+                                    // `spareTrack()` clones the sample it's based on artwork,
+                                    // audio and all -- an edit ships its own real, bundled
+                                    // recording, so this swaps that back in rather than leaving
+                                    // it pointing at (and showing) an unrelated sample's.
+                                    if let bundledURL = edit.bundledURL {
+                                        simulated.url = bundledURL
+                                    }
+                                    simulated.artwork = nil
+                                    let simulatedID = simulated.id
+                                    tutorialSampleData.demoTracks.append(simulated)
+                                    Task {
+                                        guard let art = await PopularEditArtwork.load(for: edit) else { return }
+                                        if let idx = tutorialSampleData.demoTracks.firstIndex(where: { $0.id == simulatedID }) {
+                                            tutorialSampleData.demoTracks[idx].artwork = art
+                                        }
+                                    }
+                                }
+                            } else {
+                                player.importPopularEdit(edit)
+                            }
+                        },
+                        isTutorialMode: isShowingTutorialSample
                     )
+                    // The tutorial's floating callout panel is a separate window, so its own
+                    // Next click otherwise reads as an outside click and auto-dismisses this --
+                    // only this code should ever close it mid-tour.
+                    .interactiveDismissDisabled(isShowingTutorialSample)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 10)
+            .tutorialAnchor("playlist.header")
 
             if !selectedTrackIDs.isEmpty {
                 selectionActionBar
             }
 
             // MARK: - Queue Core Layout
-            if player.tracks.isEmpty {
+            if isShowingTutorialSample {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(Array(tutorialSampleData.demoTracks.enumerated()), id: \.element.id) { index, track in
+                            PlaylistRow(
+                                displayIndex: index + 1,
+                                track: track,
+                                isPlaying: tutorialManager.simulatedNowPlaying?.title == track.title,
+                                isImporting: false,
+                                isBeingDragged: draggedSampleID == track.id,
+                                isDropTarget: false,
+                                isSelected: false,
+                                onDelete: {
+                                    tutorialSampleData.demoTracks.removeAll { $0.id == track.id }
+                                    // Later steps (classify, play) need at least one track to
+                                    // point at, so deleting the last one brings a fresh one back.
+                                    if tutorialSampleData.demoTracks.isEmpty, let spare = tutorialSampleData.spareTrack() {
+                                        tutorialSampleData.demoTracks = [spare]
+                                    }
+                                    TutorialManager.shared.reportAction(.deletedSample)
+                                },
+                                onToggleSkip: {
+                                    if let sampleIndex = tutorialSampleData.demoTracks.firstIndex(where: { $0.id == track.id }) {
+                                        tutorialSampleData.demoTracks[sampleIndex].isSkipped.toggle()
+                                    }
+                                    TutorialManager.shared.reportAction(.hiddenSample)
+                                }
+                            )
+                            .onTapGesture(count: 2) {
+                                TutorialManager.shared.playSample(track)
+                            }
+                            .help("Double-click to play — right-click for Skip/Delete")
+                            .onDrag {
+                                draggedSampleID = track.id
+                                return NSItemProvider(object: track.id.uuidString as NSString)
+                            }
+                            .onDrop(of: [.text], delegate: SampleReorderDropDelegate(
+                                targetID: track.id,
+                                sampleTracks: $tutorialSampleData.demoTracks,
+                                draggedSampleID: $draggedSampleID
+                            ))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                }
+                .tutorialAnchor("playlist.queue")
+            } else if player.tracks.isEmpty {
                 VStack(spacing: 8) {
                     Text("Drop audio tracks here")
                         .font(.system(size: 15, weight: .medium))
@@ -613,6 +837,7 @@ struct PlaylistView: View {
                 .background(Color(hex: "#131316"))
                 .cornerRadius(6)
                 .padding(.horizontal, 12)
+                .tutorialAnchor("playlist.queue")
                 Spacer()
             } else {
                 ScrollView {
@@ -660,14 +885,26 @@ struct PlaylistView: View {
                         lastDropHapticTrackID = nil
                     }
                 }
+                .tutorialAnchor("playlist.queue")
             }
         }
         .background(Color(hex: "#09090b"))
         .sheet(isPresented: $isShowingSpotifyImporter) {
             SpotifyImportSheet(player: player, kind: spotifyImportKind)
         }
+        .sheet(isPresented: $isShowingYouTubeImporter) {
+            YouTubeDownloadImportSheet(player: player)
+        }
         .sheet(isPresented: $isShowingCursedSongs) {
             CursedSongsSheet(player: player) { isShowingCursedSongs = false }
+        }
+        // Leaving the tour mid-flow (Skip, or otherwise) no longer auto-closes the Add Track
+        // popover on its own now that outside-click dismissal is disabled during the tour --
+        // close it explicitly instead of leaving it stranded open.
+        .onChange(of: tutorialManager.activeContext) { oldValue, newValue in
+            if oldValue == .mainControl, newValue != .mainControl {
+                isShowingAddMenu = false
+            }
         }
     }
 
@@ -713,8 +950,7 @@ struct PlaylistView: View {
         .overlay(Rectangle().frame(height: 1).foregroundColor(Color(hex: "#242429")), alignment: .bottom)
     }
 
-    /// Right-click (or the row buttons) on a row inside the current selection acts on the whole
-    /// selection; on a row outside it, only that one track.
+    /// Right-click (or the row buttons) acts on the whole selection if the row is in it, otherwise just that track.
     private func deleteSelectionOrSingle(_ id: UUID) {
         if selectedTrackIDs.contains(id) {
             player.removeTracks(ids: selectedTrackIDs)
@@ -741,8 +977,7 @@ struct PlaylistView: View {
            let targetIndex = player.tracks.firstIndex(where: { $0.id == id }) {
             let range = anchorIndex < targetIndex ? anchorIndex...targetIndex : targetIndex...anchorIndex
             selectedTrackIDs.formUnion(player.tracks[range].map(\.id))
-            // The anchor deliberately doesn't move: a second shift-click further out extends
-            // the same range rather than restarting it from where the last one landed.
+            // The anchor deliberately doesn't move, so a further shift-click extends the range instead of restarting it.
             return
         }
 
@@ -756,10 +991,7 @@ struct PlaylistView: View {
             return
         }
 
-        // A plain click just clears the queue selection rather than replacing it with this one
-        // row — the row's own editing behavior lives elsewhere (TrackRow), so a mode-less
-        // single click here would make it impossible to click a row without losing a
-        // multi-selection made a moment earlier.
+        // A plain click just clears the selection rather than replacing it, so it can't wipe out a multi-selection on its own.
         if !selectedTrackIDs.isEmpty {
             selectedTrackIDs.removeAll()
         }
@@ -850,7 +1082,15 @@ struct AddTrackMenu: View {
     let onSpotifyTrack: () -> Void
     let onSpotifyPlaylist: () -> Void
     let onLocalFiles: () -> Void
+    let onYouTubeDownload: () -> Void
     let onPopularEdit: (PopularEdit) -> Void
+    /// Only true for the tutorial's sample-data mode -- swaps the native `Menu` (which renders
+    /// as an AppKit `NSMenu`, entirely outside the SwiftUI view tree the tutorial can measure or
+    /// highlight) for a plain SwiftUI popover flyout instead, so "Popular Edits" and its items
+    /// can actually be spotlighted.
+    var isTutorialMode: Bool = false
+
+    @State private var isShowingPopularEditsFlyout = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -875,20 +1115,59 @@ struct AddTrackMenu: View {
             }
             .pointingHandCursor()
 
-            Menu {
-                ForEach(PopularEdit.allCases) { edit in
-                    Button(edit.displayName) {
-                        onPopularEdit(edit)
-                    }
-                }
-            } label: {
-                Label("Popular Edits", systemImage: "star")
+            Button(action: onYouTubeDownload) {
+                Label("Download File", systemImage: "arrow.down.circle")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .pointingHandCursor()
+            .help("Search YouTube directly and download the audio -- no Spotify account needed")
+
+            if isTutorialMode {
+                Button(action: {
+                    isShowingPopularEditsFlyout = true
+                    TutorialManager.shared.reportAction(.openedPopularEditsMenu)
+                }) {
+                    Label("Popular Edits", systemImage: "star")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .pointingHandCursor()
+                .tutorialAnchor("addmenu.popularEdits")
+                .popover(isPresented: $isShowingPopularEditsFlyout, arrowEdge: .trailing) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(PopularEdit.allCases) { edit in
+                            Button(edit.displayName) {
+                                onPopularEdit(edit)
+                                TutorialManager.shared.reportAction(.selectedPopularEdit)
+                                isShowingPopularEditsFlyout = false
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .pointingHandCursor()
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(hex: "#d4d4d8"))
+                    .padding(8)
+                    .frame(width: 210)
+                    .background(Color(hex: "#18181b"))
+                    .interactiveDismissDisabled(true)
+                    .tutorialAnchor("addmenu.editsList")
+                }
+            } else {
+                Menu {
+                    ForEach(PopularEdit.allCases) { edit in
+                        Button(edit.displayName) {
+                            onPopularEdit(edit)
+                        }
+                    }
+                } label: {
+                    Label("Popular Edits", systemImage: "star")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .pointingHandCursor()
+            }
         }
-        // Per row rather than on the stack: the style applies to the whole menu, but a cursor
-        // applied here would turn to a pointer over the gaps and the divider too.
+        // Per row rather than on the stack, or the pointer cursor would apply over the gaps and divider too.
         .buttonStyle(.plain)
         .font(.system(size: 13, weight: .medium))
         .foregroundColor(Color(hex: "#d4d4d8"))
@@ -970,6 +1249,7 @@ struct SpotifyImportSheet: View {
                 TextField("Client ID", text: $spotifyClientID)
                     .textFieldStyle(.roundedBorder)
             }
+            .tutorialAnchor("spotify.clientID")
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(kind == .track ? "SPOTIFY TRACK" : "SPOTIFY PLAYLIST")
@@ -986,8 +1266,9 @@ struct SpotifyImportSheet: View {
                         .foregroundColor(Color(hex: "#f97316"))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                
+
             }
+            .tutorialAnchor("spotify.input")
 
             if kind == .track {
                 HStack(spacing: 8) {
@@ -1023,6 +1304,7 @@ struct SpotifyImportSheet: View {
                     .pointingHandCursor()
                     .disabled(player.isSpotifyImporting || player.isSpotifySearching || !hasInput)
                 }
+                .tutorialAnchor("spotify.actions")
             }
 
             if kind == .track && !player.spotifySearchResults.isEmpty {
@@ -1072,6 +1354,7 @@ struct SpotifyImportSheet: View {
                     .buttonStyle(DisplayWindowButtonStyle())
                     .pointingHandCursor()
                     .disabled(player.isSpotifyImporting || !hasInput)
+                    .tutorialAnchor("spotify.actions")
                 }
             }
         }
@@ -1079,7 +1362,13 @@ struct SpotifyImportSheet: View {
         .frame(width: 460)
         .background(Color(hex: "#111114"))
         .preferredColorScheme(.dark)
+        .tutorialOverlayHost(for: [.spotifyImporter])
+        .onAppear {
+            player.isSpotifyImportSheetPresented = true
+            DispatchQueue.main.async { TutorialManager.shared.startIfNeverSeen(.spotifyImporter) }
+        }
         .onDisappear {
+            player.isSpotifyImportSheetPresented = false
             player.spotifySearchResults = []
         }
     }
@@ -1138,6 +1427,188 @@ struct SpotifyImportSheet: View {
     }
 }
 
+/// A plain YouTube search-and-download, with no Spotify account or client ID involved.
+struct YouTubeDownloadImportSheet: View {
+    @ObservedObject var player: PlayerController
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var searchQuery: String = ""
+
+    private var statusColor: Color {
+        guard let message = player.youTubeDownloadStatusMessage else { return Color(hex: "#a3a3ac") }
+        return message.hasPrefix("Downloaded") ? Color(hex: "#22c55e") : Color(hex: "#f97316")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Download File")
+                    .font(.system(size: 16, weight: .bold))
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+            }
+
+            Text("Paste a YouTube video title or type a song name, pick the right match, and "
+                 + "its audio is downloaded from YouTube with the title, artist, and cover art "
+                 + "from iTunes. No Spotify account or API key needed.")
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "#a3a3ac"))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("SEARCH")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    TextField("e.g. \"Adele - Hello (Official Music Video)\"", text: $searchQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(search)
+
+                    Button(action: search) {
+                        if player.isSearchingITunes {
+                            ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: "magnifyingglass")
+                        }
+                    }
+                    .buttonStyle(DisplayWindowButtonStyle())
+                    .pointingHandCursor()
+                    .disabled(player.isSearchingITunes || searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .tutorialAnchor("song.search")
+
+            if !player.iTunesSearchResults.isEmpty {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(player.iTunesSearchResults) { result in
+                            ITunesSearchResultRow(
+                                result: result,
+                                isDownloading: player.isDownloadingFromYouTube
+                            ) {
+                                player.importFromYouTube(
+                                    artist: result.artistName,
+                                    title: result.trackName,
+                                    expectedDurationSeconds: result.durationSeconds,
+                                    artworkURL: result.artworkURL
+                                )
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 260)
+                .background(Color(hex: "#0c0c0e"))
+                .cornerRadius(6)
+                .tutorialAnchor("song.results")
+            }
+
+            if let message = player.youTubeDownloadStatusMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(statusColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+
+                Button("Close") {
+                    dismiss()
+                }
+                .buttonStyle(DisplayWindowButtonStyle())
+                .pointingHandCursor()
+            }
+        }
+        .padding(18)
+        .frame(width: 460)
+        .background(Color(hex: "#111114"))
+        .preferredColorScheme(.dark)
+        .tutorialOverlayHost(for: [.songImporter])
+        .onAppear {
+            player.isYouTubeDownloadSheetPresented = true
+            DispatchQueue.main.async { TutorialManager.shared.startIfNeverSeen(.songImporter) }
+        }
+        .onDisappear {
+            player.isYouTubeDownloadSheetPresented = false
+            player.youTubeDownloadStatusMessage = nil
+            player.iTunesSearchResults = []
+        }
+    }
+
+    private func search() {
+        let cleaned = PlayerController.cleanedYouTubeStyleTitle(searchQuery)
+        guard !cleaned.isEmpty else { return }
+        player.searchITunes(query: cleaned)
+    }
+}
+
+struct ITunesSearchResultRow: View {
+    let result: PlayerController.ITunesSearchResult
+    let isDownloading: Bool
+    let onImport: () -> Void
+
+    private var durationLabel: String {
+        guard let seconds = result.durationSeconds else { return "" }
+        return String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: result.artworkURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Image(systemName: "music.note")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color(hex: "#71717a"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: 40, height: 40)
+            .background(Color(hex: "#18181b"))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(result.trackName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(result.artistName)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#a3a3ac"))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if !durationLabel.isEmpty {
+                Text(durationLabel)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Color(hex: "#71717a"))
+            }
+
+            Button(action: onImport) {
+                if isDownloading {
+                    ProgressView().scaleEffect(0.6).frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .bold))
+                }
+            }
+            .buttonStyle(DisplayWindowButtonStyle())
+            .pointingHandCursor()
+            .disabled(isDownloading)
+            .help("Download this match")
+        }
+        .padding(8)
+        .background(Color(hex: "#18181b"))
+        .cornerRadius(6)
+    }
+}
+
 struct SpotifySearchResultRow: View {
     let track: Track
     let onImport: () -> Void
@@ -1190,8 +1661,7 @@ struct SpotifySearchResultRow: View {
 
 // MARK: - Set Clock
 
-/// Sits in the top bar as text, not a window. Unconfigured it offers the configure button in
-/// its own place; once set it shows the projected finish and how far off target that is.
+/// Sits in the top bar as text, not a window; shows a configure button until set, then the projected finish and how far off target it is.
 struct SetClockBar: View {
     @ObservedObject var player: PlayerController
     @Binding var isPresentingConfigure: Bool
@@ -1200,27 +1670,36 @@ struct SetClockBar: View {
         Group {
             if player.isSetClockConfigured {
                 Button(action: { isPresentingConfigure = true }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "clock")
-                        Text(readout)
-                        if let delta = player.setClockDeltaSeconds {
-                            Text(deltaLabel(delta))
-                                .foregroundColor(deltaColor(delta))
+                    // Falls back to just the clock icon rather than squeezing this text into a single-letter-per-line column.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "clock")
+                            Text(readout).fixedSize()
+                            if let delta = player.setClockDeltaSeconds {
+                                Text(deltaLabel(delta))
+                                    .fixedSize()
+                                    .foregroundColor(deltaColor(delta))
+                            }
                         }
+                        Image(systemName: "clock")
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
                 .pointingHandCursor()
-                .help("Projected finish — click to reconfigure")
+                .help("\(readout) — click to reconfigure")
             } else {
                 Button(action: { isPresentingConfigure = true }) {
-                    HStack(spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock")
+                            Text("Configure Set Clock").fixedSize()
+                        }
                         Image(systemName: "clock")
-                        Text("Configure Set Clock")
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
                 .pointingHandCursor()
+                .help("Configure Set Clock")
             }
         }
         .popover(isPresented: $isPresentingConfigure, arrowEdge: .bottom) {
@@ -1334,8 +1813,7 @@ struct SetClockConfigureView: View {
 
 // MARK: - Cover Art Picker Window
 
-/// Walks the set one song at a time, offering iTunes covers to choose from. Candidates for the
-/// next song are fetched while the DJ looks at the current one, so advancing is instant.
+/// Walks the set one song at a time, prefetching the next song's candidates so advancing is instant.
 struct CoverArtPickerView: View {
     @ObservedObject var player: PlayerController
 
@@ -1590,10 +2068,10 @@ struct PlaylistRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if track.isSkipped {
-                Text("Skipped")
-                    .font(.system(size: 9, weight: .bold))
+                Image(systemName: "x.circle")
+                    .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#6b6b75"))
-                    .frame(width: 32, alignment: .leading)
+                    .frame(width: 16)
             } else if isPlaying {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 11))
@@ -1643,6 +2121,31 @@ struct PlaylistRow: View {
             Button("Delete Track", role: .destructive) { onDelete() }
         }
         .grabCursor(isDragging: isBeingDragged)
+    }
+}
+
+/// A simple two-item swap rather than a full insert-before/after reorder -- good enough for the demo.
+struct SampleReorderDropDelegate: DropDelegate {
+    let targetID: UUID
+    @Binding var sampleTracks: [Track]
+    @Binding var draggedSampleID: UUID?
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggedSampleID = nil }
+        guard let draggedSampleID, draggedSampleID != targetID,
+              let fromIndex = sampleTracks.firstIndex(where: { $0.id == draggedSampleID }),
+              let toIndex = sampleTracks.firstIndex(where: { $0.id == targetID })
+        else { return false }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            sampleTracks.swapAt(fromIndex, toIndex)
+        }
+        TutorialManager.shared.reportAction(.reorderedSample)
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 
@@ -1697,23 +2200,66 @@ struct LibraryTableView: View {
     /// Measured content width, so a drag preview matches the row it came from.
     @State private var rowWidth: CGFloat = 380
 
+    @ObservedObject private var tutorialManager = TutorialManager.shared
+    @ObservedObject private var tutorialSampleData = TutorialSampleData.shared
+
+    private var isShowingTutorialSample: Bool {
+        tutorialManager.activeContext == .mainControl && player.tracks.isEmpty
+    }
+
+    private func sampleDanceStylesBinding(for trackID: UUID) -> Binding<Set<String>> {
+        Binding(
+            get: { tutorialSampleData.demoTracks.first { $0.id == trackID }?.danceStyles ?? [] },
+            set: { newValue in
+                guard let index = tutorialSampleData.demoTracks.firstIndex(where: { $0.id == trackID }) else { return }
+                let wasUntagged = tutorialSampleData.demoTracks[index].danceStyles.isEmpty
+                tutorialSampleData.demoTracks[index].danceStyles = newValue
+                // Whichever song was untagged at this step, not a specific title -- if the DJ
+                // deleted the usual one earlier, another song stands in for it instead.
+                if wasUntagged, !newValue.isEmpty {
+                    TutorialManager.shared.reportAction(.classifiedSample)
+                }
+            }
+        )
+    }
+
+    private func sampleCustomStyleBinding(for trackID: UUID) -> Binding<String> {
+        Binding(
+            get: { tutorialSampleData.demoTracks.first { $0.id == trackID }?.customStyle ?? "" },
+            set: { newValue in
+                guard let index = tutorialSampleData.demoTracks.firstIndex(where: { $0.id == trackID }) else { return }
+                tutorialSampleData.demoTracks[index].customStyle = newValue
+            }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                TransportControls(player: player)
+                TransportControls(
+                    player: player,
+                    tutorialSample: isShowingTutorialSample ? tutorialSampleData.demoTracks.first : nil
+                )
+                    .tutorialAnchor("transport.controls")
 
                 Spacer()
 
                 SetClockBar(player: player, isPresentingConfigure: $player.isPresentingSetClockConfig)
+                    .tutorialAnchor("setclock.bar")
 
                 Button(action: { player.openDisplayWindow() }) {
-                    HStack(spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "macwindow")
+                            Text("Open Audience Screen").fixedSize()
+                        }
                         Image(systemName: "macwindow")
-                        Text("Open Audience Screen")
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
                 .pointingHandCursor()
+                .help("Open Audience Screen")
+                .tutorialAnchor("audience.button")
 
                 Button(action: {
                     player.isAdvancedSettingsOpen = true
@@ -1742,7 +2288,24 @@ struct LibraryTableView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        if player.tracks.isEmpty {
+                        if isShowingTutorialSample {
+                            ForEach(tutorialSampleData.demoTracks) { track in
+                                VStack(spacing: 0) {
+                                    TrackRow(
+                                        player: player,
+                                        track: track,
+                                        isPlaying: tutorialManager.simulatedNowPlaying?.title == track.title,
+                                        isBeingDragged: false,
+                                        isDropTarget: false,
+                                        danceStylesOverride: sampleDanceStylesBinding(for: track.id),
+                                        customStyleOverride: sampleCustomStyleBinding(for: track.id)
+                                    )
+                                }
+                                Rectangle()
+                                    .fill(Color(hex: "#71717a"))
+                                    .frame(height: 1)
+                            }
+                        } else if player.tracks.isEmpty {
                             Text("No tracks loaded in.")
                                 .font(.system(size: 20))
                                 .foregroundColor(Color(hex: "#a3a3ac"))
@@ -1750,8 +2313,7 @@ struct LibraryTableView: View {
                                 .padding(.leading, 40)
                         } else {
                             ForEach(player.tracks) { track in
-                                // Wrapped because `TrackRow` is a `GridRow` outside its Grid:
-                                // a background on it attaches per cell, not to the whole block.
+                                // Wrapped because `TrackRow` is a `GridRow` outside its Grid, so a background on it attaches per cell.
                                 VStack(spacing: 0) {
                                     TrackRow(
                                         player: player,
@@ -1798,12 +2360,20 @@ struct LibraryTableView: View {
                         lastDropHapticTrackID = nil
                     }
                 }
+                .tutorialAnchor("library.rows")
             }
 
-            PlaybackStatusBar(player: player)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color(hex: "#111114"))
+            Group {
+                if let simulated = tutorialManager.simulatedNowPlaying {
+                    TutorialSimulatedNowPlayingBar(title: simulated.title, artist: simulated.artist)
+                } else {
+                    PlaybackStatusBar(player: player)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(hex: "#111114"))
+            .tutorialAnchor("playback.status")
         }
         .background(Color(hex: "#111114"))
         .sheet(isPresented: $isShowingAdvancedSettings) {
@@ -1819,7 +2389,34 @@ struct TrackRow: View {
     let isPlaying: Bool
     var isBeingDragged: Bool = false
     var isDropTarget: Bool = false
+    /// Used only by the tutorial's sample rows, which aren't in `player.tracks` so the default player-lookup binding below would always miss.
+    var danceStylesOverride: Binding<Set<String>>? = nil
+    var customStyleOverride: Binding<String>? = nil
     @State private var isShowingPicker = false
+
+    private var danceStylesBinding: Binding<Set<String>> {
+        danceStylesOverride ?? Binding(
+            get: { player.trackIndex(for: track.id).map { player.tracks[$0].danceStyles } ?? [] },
+            set: { newValue in
+                if let index = player.trackIndex(for: track.id) {
+                    player.tracks[index].danceStyles = newValue
+                    player.saveTrack(player.tracks[index])
+                }
+            }
+        )
+    }
+
+    private var customStyleBinding: Binding<String> {
+        customStyleOverride ?? Binding(
+            get: { player.trackIndex(for: track.id).map { player.tracks[$0].customStyle } ?? "" },
+            set: { newValue in
+                if let index = player.trackIndex(for: track.id) {
+                    player.tracks[index].customStyle = newValue
+                    player.saveTrack(player.tracks[index])
+                }
+            }
+        )
+    }
 
     var body: some View {
         GridRow {
@@ -1868,19 +2465,19 @@ struct TrackRow: View {
                 Spacer(minLength: 16)
 
                 if player.showTempo {
-                    Text(track.manualBPM.isEmpty ? "-- BPM" : "\(track.manualBPM) BPM")
+                    Text(track.manualBPM.isEmpty ? "-- BPM" : "\(track.displayedBPM) BPM")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(track.manualBPM.isEmpty ? Color(hex: "#52525b") : Color(hex: "#3478f6"))
                         .padding(.trailing, 12)
                         .help("Double-click to set this track's tempo")
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) {
-                            player.selectedTrackForEditing = track
+                            player.openTimingEditor(for: track.id)
                         }
                         .pointingHandCursor()
                 }
 
-                Text(formatDuration(track.effectiveDuration))
+                Text(formatDuration(track.effectiveArrangedDuration))
                     .font(.system(size: 15))
                     .foregroundColor(isPlaying ? .white : Color(hex: "#71717a"))
             }
@@ -1911,46 +2508,23 @@ struct TrackRow: View {
             .pointingHandCursor()
             .frame(maxWidth: .infinity)
             .popover(isPresented: $isShowingPicker, arrowEdge: .trailing) {
-                // Resolved by id on every access — a row's position changes under it whenever
-                // the queue is reordered.
-                DanceStyleMultiSelectorPopover(
-                    danceStyles: Binding(
-                        get: {
-                            player.trackIndex(for: track.id).map { player.tracks[$0].danceStyles } ?? []
-                        },
-                        set: { newValue in
-                            if let index = player.trackIndex(for: track.id) {
-                                player.tracks[index].danceStyles = newValue
-                            }
-                        }
-                    ),
-                    customStyle: Binding(
-                        get: {
-                            player.trackIndex(for: track.id).map { player.tracks[$0].customStyle } ?? ""
-                        },
-                        set: { newValue in
-                            if let index = player.trackIndex(for: track.id) {
-                                player.tracks[index].customStyle = newValue
-                            }
-                        }
-                    )
-                )
+                DanceStyleMultiSelectorPopover(danceStyles: danceStylesBinding, customStyle: customStyleBinding)
             }
 
-            // Column 3: Edit Metadata (Styled like Calculate ReplayGain & Formatted Left)
+            // Column 3: Track Editor (Styled like Calculate ReplayGain & Formatted Left)
             HStack {
                 Button(action: {
-                    player.selectedTrackForEditing = track
+                    player.openTimingEditor(for: track.id)
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: track.source == .spotify ? "clock" : "slider.horizontal.3")
-                        Text(track.source == .spotify ? "Timing Settings" : "Edit Metadata")
+                        Text("Track Editor")
                     }
                 }
                 .buttonStyle(DisplayWindowButtonStyle())
                 .pointingHandCursor()
-                .help(track.source == .spotify ? "Set Spotify start and end timestamps." : "Edit local track metadata.")
-                
+                .help(track.source == .spotify ? "Set Spotify start and end timestamps." : "Edit this track's metadata, timing, fades, and tempo.")
+
                 Spacer(minLength: 0)
             }
         }
@@ -1980,545 +2554,6 @@ struct TrackRow: View {
         let m = Int(t) / 60
         let s = Int(t) % 60
         return String(format: "%d:%02d", m, s)
-    }
-}
-
-struct MetadataEditorPanel: View {
-    @ObservedObject var player: PlayerController
-    
-    // Local ephemeral states for isolated text field operations
-    @State private var editableTitle: String = ""
-    @State private var editableArtist: String = ""
-    
-    // Split Minutes and Seconds fields for Truncation
-    @State private var startMinString: String = "0"
-    @State private var startSecString: String = "00"
-    @State private var endMinString: String = "0"
-    @State private var endSecString: String = "00"
-    
-    @State private var tempoPercentage: Double = 0.0
-    @State private var localArtwork: NSImage? = nil
-    /// Only a deliberate pick counts as custom art — art merely loaded from the file's tags
-    /// shouldn't get duplicated into every saved project.
-    @State private var didChooseArtwork: Bool = false
-    @State private var isEditingTempoText: Bool = false
-    @State private var tempoTextInput: String = ""
-    @State private var customTempoOverride: Double? = nil
-    @State private var editingTrackID: UUID? = nil
-    @State private var tempoKeyMonitor: Any? = nil
-
-    // Manual base BPM + the derived, slider-driven "current" BPM readout/edit
-    @State private var manualBPMText: String = ""
-    @State private var isEditingEffectiveBPMText: Bool = false
-    @State private var effectiveBPMTextInput: String = ""
-
-    private var baseBPMValue: Double? {
-        guard let value = Double(manualBPMText), value > 0 else { return nil }
-        return value
-    }
-
-    private var effectiveBPMValue: Double? {
-        guard let base = baseBPMValue else { return nil }
-        return base * (1 + tempoPercentage / 100)
-    }
-
-    /// Slider granularity: whole-BPM steps once Show Tempo is on and a base BPM is set, else the default 0.5%.
-    private var tempoSliderStep: Double {
-        if player.showTempo, let base = baseBPMValue, base > 0 {
-            return max(0.02, 100.0 / base)
-        }
-        return 0.5
-    }
-    
-    
-    private var isEditingSpotifyTrack: Bool {
-        player.selectedTrackForEditing?.source == .spotify
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header Bar
-            // Header Bar inside MetadataEditorPanel
-            HStack {
-                Text("Metadata Editor")
-                    .font(.system(size: 14, weight: .bold))
-                Spacer()
-                
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        NSApp.keyWindow?.makeFirstResponder(nil)
-                        
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            player.selectedTrackForEditing = nil
-                        }
-                    }
-            }
-            .padding(.bottom, 4)
-            
-            // Artwork Well
-            VStack(alignment: .center) {
-                Group {
-                    if let art = localArtwork {
-                        Image(nsImage: art)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        ZStack {
-                            Color(hex: "#18181b")
-                            Image(systemName: "photo.badge.plus")
-                                .font(.system(size: 32))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .frame(width: 110, height: 110)
-                .cornerRadius(8)
-                .clipped()
-                .onTapGesture {
-                    importCoverArtImage()
-                }
-            }
-            
-            
-            .frame(maxWidth: .infinity)
-            .padding(.top, 10)
-            
-            Text("Click the image above to change the cover art")
-                .gridColumnAlignment(.center)
-                .font(.system(size: 8))
-                .foregroundColor(.gray)
-            
-            Divider()
-                .background(Color(hex: "#27272a"))
-                .padding(.vertical, 4)
-            
-            // Meta Fields
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SONG TITLE")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.gray)
-                TextField("Title", text: $editableTitle)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("ARTIST NAME")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.gray)
-                TextField("Artist", text: $editableArtist)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            Divider()
-                .background(Color(hex: "#27272a"))
-                .padding(.vertical, 4)
-            
-            // Typed timestamps are the only way to trim a Spotify track. A local file gets the
-            // waveform instead, where the same two numbers can be seen against the audio.
-            if isEditingSpotifyTrack {
-                timestampField(
-                    title: "START TIMESTAMP",
-                    minutes: $startMinString,
-                    seconds: $startSecString,
-                    edge: .start
-                )
-
-                timestampField(
-                    title: "END TIMESTAMP",
-                    minutes: $endMinString,
-                    seconds: $endSecString,
-                    edge: .end
-                )
-            } else {
-                openTimingEditorButton
-            }
-
-            if !isEditingSpotifyTrack {
-                // Engine Modification Constraints: Tempo Warp
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("TEMPO ADJUSTMENT")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.gray)
-                        Spacer()
-                        
-                        if isEditingTempoText {
-                            TextField("e.g. -8.9", text: $tempoTextInput)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                                .font(.system(size: 11, weight: .bold))
-                                .onSubmit {
-                                    commitTempoTextInput()
-                                }
-                                .onExitCommand {
-                                    isEditingTempoText = false
-                                    tempoTextInput = ""
-                                }
-                        } else {
-                            Text(String(format: "%+.1f%%", tempoPercentage))
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(tempoPercentage == 0 ? .gray : .blue)
-                                .help("Click to type a custom tempo value")
-                                .onTapGesture {
-                                    tempoTextInput = String(format: "%.1f", tempoPercentage)
-                                    isEditingTempoText = true
-                                }
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Text("BASE BPM")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.gray)
-                        TextField("blank", text: $manualBPMText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 55)
-                            .font(.system(size: 11))
-
-                        if baseBPMValue != nil {
-                            Text("→")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-
-                            if isEditingEffectiveBPMText {
-                                TextField("bpm", text: $effectiveBPMTextInput)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 55)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .onSubmit {
-                                        commitEffectiveBPMTextInput()
-                                    }
-                                    .onExitCommand {
-                                        isEditingEffectiveBPMText = false
-                                        effectiveBPMTextInput = ""
-                                    }
-                            } else if let effective = effectiveBPMValue {
-                                Text("\(Int(effective.rounded())) BPM")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.blue)
-                                    .help("Click to type a target BPM")
-                                    .onTapGesture {
-                                        effectiveBPMTextInput = String(Int(effective.rounded()))
-                                        isEditingEffectiveBPMText = true
-                                    }
-                            }
-                        }
-                        Spacer()
-                    }
-
-                        TicklessSlider(
-                            value: $tempoPercentage,
-                            range: -25...25,
-                            step: tempoSliderStep,
-                            onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    HapticFeedback.perform(.levelChange)
-                                }
-                            }
-                        )
-                        .accentColor(.blue)
-                    
-                    HStack {
-                        Text("Slower")
-                            .font(.system(size: 9))
-                            .foregroundColor(.gray)
-                        Spacer()
-                        Button("Reset") {
-                            tempoPercentage = 0.0
-                            customTempoOverride = nil
-                            HapticFeedback.perform(.levelChange)
-                        }
-                            .font(.system(size: 9))
-                            .buttonStyle(.plain)
-                            .pointingHandCursor()
-                        Spacer()
-                        Text("Faster")
-                            .font(.system(size: 9))
-                            .foregroundColor(.gray)
-                    }
-                }
-            } else {
-                Text("Detailed Editing is Not Available for Spotify Tracks")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(hex: "#a3a3ac"))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            
-            Spacer()
-        }
-        .padding(16)
-        .background(Color(hex: "#111114"))
-        .onAppear {
-            hydrateFormFields()
-            installTempoKeyMonitor()
-        }
-        .onChange(of: player.selectedTrackForEditing) { oldValue, newValue in
-            hydrateFormFields()
-        }
-        .onDisappear {
-            removeTempoKeyMonitor()
-            saveMetadataModifications()
-        }
-    }
-    
-    /// Stands aside when a text field or the waveform sheet needs the arrow keys for its own purpose.
-    private func installTempoKeyMonitor() {
-        removeTempoKeyMonitor()
-        tempoKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard player.selectedTrackForEditing != nil,
-                  player.timingEditorTrackID == nil,
-                  !isEditingSpotifyTrack
-            else { return event }
-
-            // Arrow keys always carry `.function`/`.numericPad`, so only refuse modifiers that would mean something else.
-            let modifiers = event.modifierFlags
-            guard !modifiers.contains(.command),
-                  !modifiers.contains(.option),
-                  !modifiers.contains(.control)
-            else { return event }
-            if NSApp.keyWindow?.firstResponder is NSTextView { return event }
-
-            let step = modifiers.contains(.shift) ? 0.5 : 1.0
-            switch event.keyCode {
-            case 123: // left arrow
-                nudgeTempo(by: -step)
-                return nil
-            case 124: // right arrow
-                nudgeTempo(by: step)
-                return nil
-            default:
-                return event
-            }
-        }
-    }
-
-    private func removeTempoKeyMonitor() {
-        if let tempoKeyMonitor { NSEvent.removeMonitor(tempoKeyMonitor) }
-        tempoKeyMonitor = nil
-    }
-
-    private func nudgeTempo(by amount: Double) {
-        let updated = max(-25, min(25, tempoPercentage + amount))
-        guard updated != tempoPercentage else { return }
-
-        tempoPercentage = updated
-        customTempoOverride = updated
-        HapticFeedback.perform(.levelChange)
-    }
-
-    /// Opening the waveform is also a commit: the timing editor reads the stored track, so
-    /// anything still sitting in this panel's fields would be silently reverted by it otherwise.
-    private var openTimingEditorButton: some View {
-        Button {
-            saveMetadataModifications()
-            if let editingTrackID {
-                player.openTimingEditor(for: editingTrackID)
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("Edit Length")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(Color(hex: "#71717a"))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
-            .background(Color(hex: "#18181b"))
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(hex: "#27272a"), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointingHandCursor()
-        .help("Set the start and end points against the waveform, and fade in or out")
-    }
-
-    /// Minutes and seconds, with a five second audition of that edge beside them. A Spotify
-    /// track can't be drawn, so hearing it is the only way to tell whether the number is right.
-    private func timestampField(
-        title: String,
-        minutes: Binding<String>,
-        seconds: Binding<String>,
-        edge: SpotifyPreviewEdge
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.gray)
-
-            HStack(spacing: 6) {
-                TextField("Min", text: minutes)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 50)
-                Text(":")
-                    .font(.system(size: 12, weight: .bold))
-                TextField("Sec", text: seconds)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 60)
-
-                Button {
-                    previewSpotifyEdge(edge)
-                } label: {
-                    Image(systemName: player.spotifyPreviewEdge == edge
-                          ? "stop.circle.fill"
-                          : "play.circle.fill")
-                        .font(.system(size: 17))
-                        .foregroundColor(player.spotifyPreviewEdge == edge
-                                         ? Color(hex: "#f97316")
-                                         : Color(hex: "#3478f6"))
-                }
-                .buttonStyle(.plain)
-                .pointingHandCursor()
-                .help(edge == .start
-                      ? "Play the first 5 seconds from this timestamp"
-                      : "Play the 5 seconds leading up to this timestamp")
-            }
-        }
-    }
-
-    /// Sent the values currently in the fields rather than the saved ones, so a timestamp can
-    /// be checked before committing to it.
-    private func previewSpotifyEdge(_ edge: SpotifyPreviewEdge) {
-        guard let track = player.tracks.first(where: { $0.id == editingTrackID }) else { return }
-
-        let start = (Double(startMinString) ?? 0) * 60 + (Double(startSecString) ?? 0)
-        let end = (Double(endMinString) ?? 0) * 60 + (Double(endSecString) ?? 0)
-
-        player.previewSpotifyEdge(
-            edge,
-            of: track,
-            start: max(0, start),
-            end: end > start ? end : track.duration
-        )
-    }
-
-    private func commitTempoTextInput() {
-        if let parsed = Double(tempoTextInput) {
-            let clamped = max(-25, min(25, parsed))
-            customTempoOverride = clamped
-            tempoPercentage = clamped
-        }
-        isEditingTempoText = false
-        tempoTextInput = ""
-        HapticFeedback.perform(.levelChange)
-    }
-
-    private func commitEffectiveBPMTextInput() {
-        if let base = baseBPMValue, let target = Double(effectiveBPMTextInput), base > 0 {
-            let impliedPercentage = ((target / base) - 1) * 100
-            let clamped = max(-25, min(25, impliedPercentage))
-            customTempoOverride = clamped
-            tempoPercentage = clamped
-        }
-        isEditingEffectiveBPMText = false
-        effectiveBPMTextInput = ""
-        HapticFeedback.perform(.levelChange)
-    }
-
-    private func hydrateFormFields() {
-        guard let target = player.selectedTrackForEditing else { return }
-        editingTrackID = target.id
-        editableTitle = target.title
-        editableArtist = target.artist
-        localArtwork = target.artwork
-        tempoPercentage = target.tempoPercentage
-        manualBPMText = target.manualBPM
-        
-        let startTotalSec = Int(target.startTime)
-        let startMin = startTotalSec / 60
-        let startSec = startTotalSec % 60
-        startMinString = String(startMin)
-        startSecString = String(format: "%02d", startSec)
-        
-        let endTotalSec = Int(target.endTime ?? target.duration)
-        let endMin = endTotalSec / 60
-        let endSec = endTotalSec % 60
-        endMinString = String(endMin)
-        endSecString = String(format: "%02d", endSec)
-
-        // Reading a song's audio is the slow part of opening the waveform, so it starts as
-        // soon as the DJ is looking at the song rather than when they ask for the editor.
-        if target.source == .local {
-            WaveformCache.shared.prewarm(url: target.url)
-        }
-    }
-    
-    private func importCoverArtImage() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.image, .png, .jpeg]
-        panel.begin { response in
-            if response == .OK, let selectedURL = panel.url {
-                if let imagePayload = NSImage(contentsOf: selectedURL) {
-                    DispatchQueue.main.async {
-                        self.localArtwork = imagePayload
-                        self.didChooseArtwork = true
-                    }
-                }
-            }
-        }
-    }
-    
-    func saveMetadataModifications() {
-        guard let editingTrackID,
-              let matchIdx = player.tracks.firstIndex(where: { $0.id == editingTrackID }) else { return }
-        
-        let startMin = Double(startMinString) ?? 0.0
-        let startSec = Double(startSecString) ?? 0.0
-        let calculatedStart = max(0, (startMin * 60.0) + startSec)
-        
-        let endMin = Double(endMinString) ?? 0.0
-        let endSec = Double(endSecString) ?? 0.0
-        let calculatedEnd = (endMin * 60.0) + endSec
-
-        let previousTempo = player.tracks[matchIdx].tempoPercentage
-
-        var updatedTrack = player.tracks[matchIdx]
-        updatedTrack.title = editableTitle
-        updatedTrack.artist = editableArtist
-        updatedTrack.artwork = localArtwork
-        if didChooseArtwork { updatedTrack.hasCustomArtwork = true }
-        if updatedTrack.source == .local {
-            updatedTrack.tempoPercentage = tempoPercentage
-        }
-        updatedTrack.manualBPM = manualBPMText
-        // Only Spotify tracks are trimmed from this panel now; writing these back for a local
-        // file would undo whatever the waveform editor had just set.
-        if updatedTrack.source == .spotify {
-            updatedTrack.startTime = calculatedStart
-            updatedTrack.endTime = (calculatedEnd < updatedTrack.duration && calculatedEnd > calculatedStart) ? calculatedEnd : nil
-        }
-
-        // Opening and closing without an edit shouldn't push a do-nothing undo entry that clobbers the redo stack.
-        guard updatedTrack != player.tracks[matchIdx] else { return }
-
-        player.recordUndoSnapshot("Edit Song Details")
-        player.tracks[matchIdx] = updatedTrack
-        
-        if player.currentIndex == matchIdx {
-            player.synchronizeActiveTrackSettings()
-        }
-        
-        // Auto-commit properties directly to the permanent library JSON cache
-        player.saveTrack(updatedTrack)
-
-        // Time-stretching overshoots peaks, so the gain has to be re-derived against the
-        // stretched audio or a boost sized for the original will clip.
-        if updatedTrack.tempoPercentage != previousTempo {
-            player.relevelGainForTempoChange(trackID: updatedTrack.id)
-        }
     }
 }
 
@@ -2670,8 +2705,7 @@ struct DanceStyleMultiSelectorPopover: View {
         }
     }
 
-    /// Files the typed text under "Other" (so `formattedStylesDisplay` shows it as-is)
-    /// when nothing predefined matches what the DJ typed.
+    /// Files the typed text under "Other" when nothing predefined matches what the DJ typed.
     private func useSearchTextAsCustomStyle(_ text: String) {
         danceStyles.insert("Other")
         customStyle = text
@@ -2733,8 +2767,7 @@ struct PlaybackStatusBar: View {
                             .foregroundColor(statusDisplayColor)
                     }
 
-                    // Shown whenever the cued dance has an intro, autoplay or not: announcing
-                    // one is a decision the DJ makes, not something a countdown implies.
+                    // Shown whenever the cued dance has an intro; announcing one is the DJ's call, not something a countdown implies.
                     if player.isBetweenSongs,
                        !player.isShowingPivots,
                        let cued = player.currentTrack,
@@ -2818,8 +2851,7 @@ struct PlaybackStatusBar: View {
         }
     }
 
-    /// Renders at this size when it fits; `minimumScaleFactor` takes it down for a long
-    /// title rather than scrolling, which would make the DJ wait to read the end.
+    /// Renders at this size when it fits; `minimumScaleFactor` shrinks a long title instead of scrolling it.
     private static let nowPlayingMaxFontSize: CGFloat = 25
 
     /// A point size rather than a raw scale factor, so changing the max can't move it.
@@ -2835,8 +2867,7 @@ struct PlaybackStatusBar: View {
         let styles = player.currentTrack?.formattedStylesDisplay ?? "—"
 
         if player.isShowingPivots {
-            // Sized to the next-song line it stands in for, since it's now the only thing on
-            // that row rather than a note beside it.
+            // Sized to the next-song line it stands in for, since it's now the only thing on that row.
             Text("Pivots")
                 .font(.system(size: 30, weight: .black))
                 .lineLimit(1)
@@ -2849,8 +2880,7 @@ struct PlaybackStatusBar: View {
                 .lineLimit(1)
                 .minimumScaleFactor(Self.nowPlayingMinScale)
         } else if player.currentTrack?.source == .spotify || player.currentTrack?.source == .local {
-            // One concatenated Text, not an HStack, so the scale-to-fit applies evenly
-            // across the whole line instead of shrinking each run on its own.
+            // One concatenated Text, not an HStack, so scale-to-fit applies evenly instead of shrinking each run separately.
             (Text(title).italic() + Text(" - \(artist): \(styles)"))
                 .font(.system(size: Self.nowPlayingMaxFontSize, weight: .bold))
                 .lineLimit(1)
@@ -2878,21 +2908,36 @@ struct PlaybackStatusBar: View {
 
 struct TransportControls: View {
     @ObservedObject var player: PlayerController
+    /// Set only during the main control tour on an empty project -- the real queue has nothing
+    /// to play, so Play/Pause here drives this sample's own downloaded audio instead.
+    var tutorialSample: Track? = nil
+
+    @ObservedObject private var tutorialManager = TutorialManager.shared
 
     var body: some View {
         HStack(spacing: 4) {
-            Button(action: { player.previous() }) {
+            Button(action: { if tutorialSample == nil { player.previous() } }) {
                 Image(systemName: "backward.end.fill")
                     .foregroundColor(.white)
             }.buttonStyle(TransportButtonStyle())
             .pointingHandCursor()
 
-            Button(action: { player.togglePlayPause() }) {
-                Image(systemName: player.isBetweenSongs ? "play.circle.fill" : (player.isPlaying ? "pause.fill" : "play.fill"))
+            Button(action: {
+                if let tutorialSample {
+                    tutorialManager.toggleSamplePlayback(tutorialSample)
+                } else {
+                    player.togglePlayPause()
+                }
+            }) {
+                if let tutorialSample {
+                    Image(systemName: tutorialManager.isSamplePlaying ? "pause.fill" : "play.fill")
+                } else {
+                    Image(systemName: player.isBetweenSongs ? "play.circle.fill" : (player.isPlaying ? "pause.fill" : "play.fill"))
+                }
             }.buttonStyle(TransportButtonStyle(primary: true))
             .pointingHandCursor()
 
-            Button(action: { player.next() }) {
+            Button(action: { if tutorialSample == nil { player.next() } }) {
                 Image(systemName: "forward.end.fill")
                     .foregroundColor(.white)
             }.buttonStyle(TransportButtonStyle())
@@ -2920,8 +2965,7 @@ struct ScrollingMarquee<Content: View>: View {
     var gap: CGFloat = 48
     /// How long to pause (fully visible at the start) before each pass.
     var pauseDuration: Double = 3
-    /// When false, never scrolls (renders static truncated text) — used to pause the
-    /// continuous per-frame animation while a heavier task (e.g. importing) is running.
+    /// When false, never scrolls -- used to pause the animation while a heavier task (e.g. importing) is running.
     var isEnabled: Bool = true
 
     @State private var contentWidth: CGFloat = 0
@@ -3174,7 +3218,7 @@ struct AdvancedSettingsView: View {
                 .foregroundColor(Color(hex: "#52525b"))
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("Detect BPM for All Songs (⌘B)") { player.detectBPMForLibrary() }
+            Button("Detect BPM for All Songs (⌘T)") { player.detectBPMForLibrary() }
                 .buttonStyle(.bordered)
                 .pointingHandCursor()
                 .disabled(player.tracks.isEmpty || player.isImportingContent)

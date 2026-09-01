@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Off: the bundled Spotify-download helper tools need syscalls (System V semaphores,
+	     JIT-compiled WASM) that the sandbox blocks even for a spawned subprocess. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<!-- Lets the app remember the folder the DJ picked for their projects across launches,
 	     instead of re-prompting on every run. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>

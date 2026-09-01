@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.4 — 1 September 2026
+
+### Track editor
+
+- **Editing In the Track Editor** you can now edit tracks in the metadata editor and download them for personal use!
+- **Blade a track into pieces (⌘B)** and arrange them across two lanes — drag a piece to move it
+  in time or swap lanes, drag its edges to trim, drag a top corner to fade it in or out.
+- Delete a selected piece with **⌫** (closing the gap behind it) or **⌥⌫** (leaving silence in
+  its place instead).
+- **Undo All** reverts every change made in the editing session.
+- A thin dashed line now follows your mouse over the waveform, previewing exactly where a click
+  or a blade will land.
+- The Start/End fields and the "plays as…" length now track the tempo slider live, showing
+  played time rather than raw file time.
+- Local playback moved onto a purpose-built two-lane audio engine to support blading and
+  crossfades — invisible day to day, but it's what makes the new arrangement editor possible.
+
+### Downloading Spotify tracks
+
+- **Every Spotify track now has a "Download File" button** in the track editor — it finds a
+  matching YouTube video, downloads it, and swaps the track over to a normal local
+  file with the full waveform editor, tempo, blading and export all now available for it.
+- **"Download All Spotify Tracks…"** (View menu, ⌘⇧D) does the same for every Spotify track in
+  the project in one pass, with a running progress count and a summary of any it couldn't find.
+
+### Interactive tutorials
+
+- **A hands-on tutorial** runs for the first time the project installs. Thanks Eddy for the idea!
+- **Stuck, or want to see it again? Press ⌘⇧T on any screen** to pull up the tutorial for
+  whatever window you're looking at.
+- A **"Run tutorial after creating"** checkbox on the New Project screen queues up the tour right after the project is created.
+
+### Workbook import
+
+- **Add Songs is now one click.** Pick Spotify or YouTube once for the whole workbook, and
+  matching and importing happen automatically.
+- **No Spotify? Import from YouTube instead.** Each song can be routed to Spotify or YouTube, and
+  either way you get clean matched titles, artists and a choice of cover art.
+- Any single song can be flipped to the other source with **"Try YouTube Instead"** /
+  **"Try Spotify Instead"** without redoing the whole batch.
+- If some songs can't be matched, a **recovery screen** offers to try the other source, rename
+  and retry those songs one at a time, or just import what's local.
+- Reworked button text for clarity.
+
+### Audience screen
+
+- **Before you press play for the first time**, the audience screen now welcomes the floor with
+  the very first dance coming up instead of sitting blank.
+
+### Various Bug Fixes and Performance Enhancements
+
+---
+
 ## 1.3 — 18 August 2026
 
 ### Timing editor

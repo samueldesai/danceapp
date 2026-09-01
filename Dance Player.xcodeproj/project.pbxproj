@@ -6,8 +6,27 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E79A460AFDBE4BBE7358C69A /* dance_player_downloader in Copy Spotify Downloader Tools */ = {isa = PBXBuildFile; fileRef = 8E8E54D3C9F2F4A8655A66FA /* dance_player_downloader */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		93F957DEEE9ACEF0563302A2 /* Copy Spotify Downloader Tools */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				E79A460AFDBE4BBE7358C69A /* dance_player_downloader in Copy Spotify Downloader Tools */,
+			);
+			name = "Copy Spotify Downloader Tools";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		176379C12FDF8E45009A583B /* Dance Player.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dance Player.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E8E54D3C9F2F4A8655A66FA /* dance_player_downloader */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = dance_player_downloader; path = SpotifyDownloaderTools/dance_player_downloader; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -29,11 +48,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		08107CEA50522B08118733F1 /* SpotifyDownloaderTools */ = {
+			isa = PBXGroup;
+			children = (
+				8E8E54D3C9F2F4A8655A66FA /* dance_player_downloader */,
+			);
+			name = SpotifyDownloaderTools;
+			sourceTree = "<group>";
+		};
 		176379B82FDF8E44009A583B = {
 			isa = PBXGroup;
 			children = (
 				176379C32FDF8E45009A583B /* Dance Player */,
 				176379C22FDF8E45009A583B /* Products */,
+				08107CEA50522B08118733F1 /* SpotifyDownloaderTools */,
 			);
 			sourceTree = "<group>";
 		};
@@ -56,6 +84,7 @@
 				176379BE2FDF8E44009A583B /* Frameworks */,
 				176379BF2FDF8E44009A583B /* Resources */,
 				17B2E4BD3018234000093E37 /* Run Script */,
+				93F957DEEE9ACEF0563302A2 /* Copy Spotify Downloader Tools */,
 			);
 			buildRules = (
 			);
@@ -65,8 +94,6 @@
 				176379C32FDF8E45009A583B /* Dance Player */,
 			);
 			name = "Dance Player";
-			packageProductDependencies = (
-			);
 			productName = "Dance Player";
 			productReference = 176379C12FDF8E45009A583B /* Dance Player.app */;
 			productType = "com.apple.product-type.application";
@@ -270,8 +297,8 @@
 				CODE_SIGN_ENTITLEMENTS = "Dance Player.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 147;
-				ENABLE_APP_SANDBOX = YES;
+				CURRENT_PROJECT_VERSION = 308;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readonly;
 				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readonly;
 				ENABLE_FILE_ACCESS_MUSIC_FOLDER = readonly;
@@ -289,6 +316,10 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -305,8 +336,14 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dancebreak.Dance-Player";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -331,8 +368,8 @@
 				CODE_SIGN_ENTITLEMENTS = "Dance Player.entitlements";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 147;
-				ENABLE_APP_SANDBOX = YES;
+				CURRENT_PROJECT_VERSION = 308;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readonly;
 				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readonly;
 				ENABLE_FILE_ACCESS_MUSIC_FOLDER = readonly;
@@ -349,6 +386,10 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -365,8 +406,14 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+					"$(PROJECT_DIR)/Dance\\ Player/SpotifyDownloader/dance_player_downloader/_internal",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dancebreak.Dance-Player";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

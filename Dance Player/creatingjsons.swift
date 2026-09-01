@@ -57,18 +57,14 @@ private struct SpotifyTaggedStyleExport: Codable {
     let tracks: [SpotifyTaggedExportTrack]
 }
 
+/// Every other field the export used to carry (spotifyURI, spotifyExternalURL, tempoPercentage,
+/// customStyle, gainCorrectiondB, source, danceStyles, startTime) was a hardcoded constant on
+/// every single track below -- `TaggedStyleRegistry` only ever reads `songHash` back out, and
+/// title/artist are kept purely so a human skimming the JSON can tell what a hash refers to.
 private struct SpotifyTaggedExportTrack: Codable {
-    let startTime: Double
-    let spotifyURI: String
-    let title: String
-    let spotifyExternalURL: String
-    let danceStyles: [String]
     let songHash: String
-    let tempoPercentage: Double
-    let customStyle: String
-    let gainCorrectiondB: Double
+    let title: String
     let artist: String
-    let source: String
 }
 
 final class SpotifyTaggedJSONExporter {
@@ -277,17 +273,9 @@ final class SpotifyTaggedJSONExporter {
 
                 exportedTracks.append(
                     SpotifyTaggedExportTrack(
-                        startTime: 0,
-                        spotifyURI: uri,
-                        title: title,
-                        spotifyExternalURL: "https://open.spotify.com/track/\(trackID)",
-                        danceStyles: [],
                         songHash: songHash,
-                        tempoPercentage: 0,
-                        customStyle: "",
-                        gainCorrectiondB: 0,
-                        artist: artist,
-                        source: "spotify"
+                        title: title,
+                        artist: artist
                     )
                 )
             }

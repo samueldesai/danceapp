@@ -15,7 +15,14 @@ struct PublicDisplayWindowView: View {
         if player.isShowingPivots { return "pivots" }
         if player.isBetweenSongs { return "betweenSongs" }
         if player.currentTrack != nil { return "nowPlaying" }
+        if firstPlayableTrack != nil { return "welcome" }
         return "idle"
+    }
+
+    /// What the floor should expect once the DJ presses play for the very first time -- nil
+    /// once anything has actually started, since `currentTrack` then takes over.
+    private var firstPlayableTrack: Track? {
+        player.tracks.first(where: { !$0.isSkipped })
     }
 
     var upNextTracks: [Track] {
@@ -434,6 +441,39 @@ struct PublicDisplayWindowView: View {
                         .padding(.horizontal, 80)
                         .padding(.bottom, 30)
                 }
+                .transition(.opacity)
+            } else if let firstTrack = firstPlayableTrack {
+                VStack(spacing: 14) {
+                    Text("Welcome!")
+                        .font(.system(size: 44, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+
+                    VStack(spacing: 6) {
+                        Text(firstTrack.nextSongLeadIn)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(Color(hex: "#71717a"))
+                        Text(firstTrack.audienceStylesDisplay.isEmpty || firstTrack.audienceStylesDisplay == "—"
+                             ? "—"
+                             : firstTrack.audienceStylesDisplay.uppercased())
+                            .font(.system(size: 48, weight: .black))
+                            .foregroundColor(Color(hex: "#3478f6"))
+                            .tracking(2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                    }
+
+                    if firstTrack.isWithStranger {
+                        Text("Find someone you've never danced with and ask them to dance!")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.6)
+                            .padding(.top, 6)
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 60)
                 .transition(.opacity)
             } else {
                 VStack(spacing: 16) {
